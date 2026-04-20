@@ -6,7 +6,7 @@
 > a realistic Excel task. **Not** a comprehensive feature list or bug list of
 > either library — just some concrete cases reproduced end-to-end.
 
-All cases tested 2026-04-20 against witan CLI 0.9.0 (API v2.18.1),
+All cases tested 2026-04-20 against witan CLI 0.9.0 (API v2.20.0),
 openpyxl 3.1.5, xlwings 0.35.1, and Microsoft Excel for Mac
 (macOS Darwin 25.3.0). Excel is used only as ground truth via xlwings
 automation. Python is launched via `uv run --with openpyxl --with xlwings python …`.
@@ -25,7 +25,7 @@ All fixtures, scripts, and outputs live under `~/dev/witan-vs-openpyxl/`.
 | 6 | Add a single-series LineChart | ✗ emits 5 phantom `<ser>` elements | ✓ single correct series |
 | 7 | Parse / evaluate `A1#` spill reference | ✗ `Tokenizer` raises `TokenizerError` on `#` | ✓ evaluates directly |
 | 8 | Describe and extend a What-If Data Table | ✗ no API; blind writes silently break the table | ✓ structured `getDataTable`/`addDataTable` |
-| 9 | Conditional format over a discontiguous range | ✗ documented path crashes in `save()` | ✓ one rule per range |
+| 9 | Conditional format over a discontiguous range | ✗ documented path crashes in `save()` | ✓ single rule with discontiguous `address` |
 | 10 | Rename a sheet referenced by formulas | ✗ formulas still say `=Inputs!…` after rename | ✓ every reference rewritten |
 | 11 | Insert a row above data used by formulas | ✗ all formulas stale; wrong values, no warning | ✓ formulas, named ranges, array-formula `ref` all shifted |
 | 12 | Rich text with a whitespace-only run | ✗ Excel repair removes the whitespace runs | ✓ `xml:space="preserve"` set on every whitespace run |
@@ -540,6 +540,18 @@ unchanged).
 
 ### witan
 
+The fixture itself is authored by witan, so it also exercises the write path.
+The `A1#` operator lowers to the canonical OOXML `_xlfn.ANCHORARRAY(...)`
+encoding in the saved XML:
+
+```xml
+<x:c r="F2"><x:f>COUNTA(_xlfn.ANCHORARRAY(Summary!D2))</x:f><x:v>4</x:v></x:c>
+<x:c r="G2"><x:f>COUNTIF(_xlfn.ANCHORARRAY(Summary!D2), "Food")</x:f><x:v>1</x:v></x:c>
+<x:c r="H2"><x:f>_xlfn.TEXTJOIN(", ", TRUE, _xlfn.ANCHORARRAY(Summary!D2))</x:f>...</x:c>
+```
+
+Reads round-trip the user-facing `#` syntax:
+
 ```bash
 $ witan xlsx exec fixtures/report_spillref.xlsx \
     --expr 'xlsx.readRangeTsv(wb, "Summary!D1:H5", {includeFormulas:true})'
@@ -686,7 +698,7 @@ The table correctly extends to 6 prices × 5 volumes.
 
 **Verdict**
 - openpyxl — **✗** The documented path to a discontiguous CF rule raises a `TypeError` pointing at `MultiCellRange`; the `MultiCellRange` path then crashes deep in `save()` with `AttributeError`. Only an undocumented space-separated string works.
-- witan — **✓** One rule per contiguous range with the same style; file opens cleanly.
+- witan — **✓** A single rule with a discontiguous `address` ("A1:A10 D1:D10"); serialises as `<conditionalFormatting sqref="A1:A10 D1:D10">` and opens cleanly in Excel.
 
 Traced to the openpyxl tracker: *Conditional Formatting Rule with
 MultiCellRange dies on save*.
@@ -720,31 +732,38 @@ Full repro: `scripts/case9_openpyxl.py`.
 
 ### witan
 
-witan's `setConditionalFormatting` takes an array of rules, each with a
-single `address: string`. The idiomatic way to cover a discontiguous range
-is one rule per contiguous segment with the same style:
+witan's `setConditionalFormatting` accepts a discontiguous `address` directly,
+matching Excel's native `sqref` syntax (space- or comma-separated union).
+One rule, one call:
 
 ```javascript
-const shared = {
-  type: "cellValue", operator: "greaterThan", formula: "100",
+await xlsx.setConditionalFormatting(wb, "Data", [{
+  type: "cellValue",
+  address: "A1:A10 D1:D10",
+  operator: "greaterThan",
+  formula: "100",
   style: {fill: {color: "#FFFF00"}},
-}
-await xlsx.setConditionalFormatting(wb, "Data", [
-  {...shared, address: "A1:A10"},
-  {...shared, address: "D1:D10"},
-], {clear: true})
+}], {clear: true})
 ```
 
 `xlsx.getConditionalFormatting(wb, "Data")`:
 
 ```json
 [
-  {"index":0, "type":"cellValue", "address":"A1:A10", "operator":"greaterThan", "formula":"100", "style":{"fill":{"color":"#FFFF00"}}, "priority":1},
-  {"index":1, "type":"cellValue", "address":"D1:D10", "operator":"greaterThan", "formula":"100", "style":{"fill":{"color":"#FFFF00"}}, "priority":2}
+  {"index":0, "type":"cellValue", "address":"A1:A10,D1:D10", "operator":"greaterThan", "formula":"100", "style":{"fill":{"color":"#FFFF00"}}, "priority":1}
 ]
 ```
 
-File opens cleanly in Excel; the highlight applies to both ranges.
+Saved XML has the expected native form:
+
+```xml
+<x:conditionalFormatting sqref="A1:A10 D1:D10">
+  ...
+</x:conditionalFormatting>
+```
+
+File opens cleanly in Excel; the highlight applies to both ranges under a
+single rule.
 
 ---
 
@@ -1311,7 +1330,7 @@ witan xlsx exec outputs/case8_witan.xlsx --script scripts/case8_witan_extend.js 
 # Case 9
 uv run --with openpyxl python scripts/case9_openpyxl.py outputs/case9_openpyxl.xlsx
 rm -f outputs/case9_witan.xlsx
-witan xlsx exec outputs/case9_witan.xlsx --create --save --script scripts/case9_witan_success.js
+witan xlsx exec outputs/case9_witan.xlsx --create --save --script scripts/case9_witan.js
 
 # Case 10
 rm -f fixtures/rename.xlsx

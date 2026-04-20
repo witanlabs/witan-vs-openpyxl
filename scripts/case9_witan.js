@@ -1,5 +1,4 @@
-// witan idiom for a discontiguous CF: emit one rule per contiguous range
-// with identical style/formula/operator.
+// Seed the same data as the openpyxl side
 await xlsx.addSheet(wb, "Data")
 const vals_A = [98, 115, 50, 5, 200, 14, 3, 175, 94, 193]
 const vals_D = [194, 79, 18, 150, 77, 66, 124, 101, 8, 24]
@@ -10,16 +9,15 @@ for (let r = 1; r <= 10; r++) {
 }
 await xlsx.setCells(wb, cells)
 
-const sharedRule = {
+// Single rule with a discontiguous address — space-separated union, matching
+// Excel's native `sqref="A1:A10 D1:D10"` form.
+await xlsx.setConditionalFormatting(wb, "Data", [{
   type: "cellValue",
+  address: "A1:A10 D1:D10",
   operator: "greaterThan",
   formula: "100",
   style: {fill: {color: "#FFFF00"}},
-}
-await xlsx.setConditionalFormatting(wb, "Data", [
-  {...sharedRule, address: "A1:A10"},
-  {...sharedRule, address: "D1:D10"},
-], {clear: true})
+}], {clear: true})
 
 const rules = await xlsx.getConditionalFormatting(wb, "Data")
 return { ruleCount: rules.length, rules }
