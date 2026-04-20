@@ -1320,7 +1320,9 @@ witan xlsx exec fixtures/report_spillref.xlsx --create --save --script scripts/c
 uv run --with openpyxl python scripts/case7_openpyxl_spill.py fixtures/report_spillref.xlsx
 witan xlsx exec fixtures/report_spillref.xlsx --expr 'xlsx.evaluateFormulas(wb, "Summary", ["=COUNTA(D2#)", "=COUNTIF(D2#, \"Food\")", "=TEXTJOIN(\", \", TRUE, D2#)"])'
 
-# Case 8 (uses fixtures/sensitivity2d.xlsx built earlier)
+# Case 8
+rm -f fixtures/sensitivity2d.xlsx
+witan xlsx exec fixtures/sensitivity2d.xlsx --create --save --script scripts/case8_build.js
 uv run --with openpyxl python scripts/case7_probe.py fixtures/sensitivity2d.xlsx           # Prompt A
 witan xlsx exec fixtures/sensitivity2d.xlsx --script scripts/case8_witan.js                # Prompt A
 uv run --with openpyxl python scripts/case8_openpyxl_extend.py fixtures/sensitivity2d.xlsx outputs/case8_openpyxl_extend.xlsx  # Prompt B
