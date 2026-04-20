@@ -1,5 +1,11 @@
 # witan xlsx exec vs openpyxl — 12 reproducible test cases
 
+> [!NOTE]
+> **Scope.** A handful of examples showing places where `witan xlsx exec` has
+> wider Excel compatibility than `openpyxl` when an agent is asked to perform
+> a realistic Excel task. **Not** a comprehensive feature list or bug list of
+> either library — just some concrete cases reproduced end-to-end.
+
 All cases tested 2026-04-20 against witan CLI 0.9.0 (API v2.18.1),
 openpyxl 3.1.5, xlwings 0.35.1, and Microsoft Excel for Mac
 (macOS Darwin 25.3.0). Excel is used only as ground truth via xlwings
