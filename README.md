@@ -1,4 +1,4 @@
-# witan xlsx exec vs openpyxl — 12 reproducible test cases
+# witan xlsx exec vs openpyxl — 14 reproducible test cases
 
 > [!NOTE]
 > **Scope.** A handful of examples showing places where `witan xlsx exec` has
@@ -29,6 +29,8 @@ All fixtures, scripts, and outputs live under `~/dev/witan-vs-openpyxl/`.
 | 10 | Rename a sheet referenced by formulas | ✗ formulas still say `=Inputs!…` after rename | ✓ every reference rewritten |
 | 11 | Insert a row above data used by formulas | ✗ all formulas stale; wrong values, no warning | ✓ formulas, named ranges, array-formula `ref` all shifted |
 | 12 | Rich text with a whitespace-only run | ✗ Excel repair removes the whitespace runs | ✓ `xml:space="preserve"` set on every whitespace run |
+| 13 | Overlapping cell merges | ✗ serialises both; Excel repair removes **all** merges | ✓ deduplicates; file opens cleanly with one merge |
+| 14 | Read per-cell borders inside a merge | ✗ returns garbled/hallucinated borders; colors zeroed, sides swapped | ✓ returns each cell's actual XML border |
 
 Key: ✓ works · ✗ fails.
 
@@ -36,9 +38,9 @@ Key: ✓ works · ✗ fails.
 
 Grouped by the *kind* of failure each case surfaces on the openpyxl side:
 
-- **Silent wrong answer** (agent reports without any error signal) — 1, 2, 4, 11
+- **Silent wrong answer** (agent reports without any error signal) — 1, 2, 4, 11, 14
 - **Cannot complete the task at all** (hard error, crash, or missing API) — 3, 6, 7, 8, 9
-- **File requires Excel repair** (produced file flagged as corrupt) — 5, 12
+- **File requires Excel repair** (produced file flagged as corrupt) — 5, 12, 13
 - **Broken XML or structure** (file loads but is semantically wrong) — 6, 10, 11
 
 ---
@@ -1057,6 +1059,202 @@ Excel opens cleanly:
 
 ---
 
+## Case 13 — Overlapping cell merges
+
+**Verdict**
+- openpyxl — **✗** Accepts overlapping `merge_cells` calls silently and serialises both `<mergeCell>` entries. Excel shows a repair prompt on open and **removes all merges** on recover.
+- witan — **✓** Accepts the request but deduplicates: only the last of the overlapping merges is serialised. Excel opens the file cleanly.
+
+Traced to the openpyxl tracker: *Overlapping cell merges cause an error in Excel*.
+
+Excel's file-format rules forbid overlapping `<mergeCell>` ranges. Either the
+writer rejects the input or the file is flagged as corrupt on open. The
+question is what each tool does when an agent asks for two overlapping
+merges.
+
+**Prompt:**
+> On the Data sheet (seeded with labels `"A1"`, `"B1"`, …, `"C3"`), merge
+> `A1:B2` and also merge `A2:C3`.
+
+### openpyxl
+
+`scripts/case13_openpyxl.py`:
+
+```python
+ws.merge_cells("A1:B2")    # no error
+ws.merge_cells("A2:C3")    # no error
+wb.save(OUT)               # no error
+```
+
+The saved XML contains both ranges:
+
+```xml
+<mergeCells count="2">
+  <mergeCell ref="A1:B2"/>
+  <mergeCell ref="A2:C3"/>
+</mergeCells>
+```
+
+And on reload, openpyxl reports both: `['A1:B2', 'A2:C3']`.
+
+**Opening in Excel** triggers the repair dialog:
+
+> **We found a problem with some content in 'case13_openpyxl.xlsx'. Do you
+> want us to try to recover as much as we can?**
+
+Repair log:
+
+```
+Repair Result to case13_openpyxl0.xml
+Errors were detected in file '…/case13_openpyxl.xlsx'
+Removed Records: Merge cells from /xl/worksheets/sheet1.xml part
+```
+
+After *Yes*, every `<mergeCell>` entry is removed — not just one of the
+conflicting pair, **both**. The user's merge intent is entirely gone.
+
+### witan
+
+`scripts/case13_witan.js`:
+
+```javascript
+await xlsx.setSheetProperties(wb, "Data", {merges: ["A1:B2", "A2:C3"]})
+```
+
+Call returns without error. But inspecting sheet state:
+
+```json
+{ "merges": ["Data!A2:C3"] }
+```
+
+Only the second (later) merge survives in the serialised XML:
+
+```xml
+<x:mergeCells count="1">
+  <x:mergeCell ref="A2:C3"/>
+</x:mergeCells>
+```
+
+Excel opens the file with no repair prompt; the single `A2:C3` merge applies
+cleanly.
+
+### Note on ideal behavior
+
+Neither tool raises an error on overlapping merge input, which would be the
+cleanest API. But the Excel-compat outcome is very different:
+
+- openpyxl produces a file Excel flags as corrupt and repairs by deleting
+  *every* merge.
+- witan produces a file Excel opens cleanly, keeping the last requested
+  merge.
+
+witan's silent deduplication is still silent data loss compared to an
+explicit error, but the resulting workbook is at least valid.
+
+---
+
+## Case 14 — Reading per-cell borders inside a merged range
+
+**Verdict**
+- openpyxl — **✗** `cell.border` on cells inside a merged range returns garbled values: wrong colors (zeros), bogus styles carried over from unrelated cells, sides swapped. Even the top-left `Cell` gets hallucinated `bottom`/`right` borders that don't exist in the XML.
+- witan — **✓** `getStyle(addr).border` returns each cell's actual XML border.
+
+Traced to the openpyxl tracker: *`MergedCell.border` returns propagated
+borders from top-left cell, not actual XML borders*.
+
+**Fixture:** `fixtures/merge_borders.xlsx` (`scripts/case14_build.js`). Four
+cells `A1..B2` merged into one range, each carrying a distinct border style
+in the XML:
+
+| Cell | Border (original request) |
+|------|---------------------------|
+| A1   | thin red, all 4 sides     |
+| B1   | thick blue, all 4 sides   |
+| A2   | medium green, all 4 sides |
+| B2   | dashed magenta, all 4 sides |
+| D1   | thick blue top+bottom (unmerged reference) |
+
+After witan applies the merge, the interior edges are clipped (they're
+invisible) and the saved XML stores each cell's own border for its visible
+perimeter edges:
+
+```
+XML view (ground truth from xl/styles.xml + xl/worksheets/sheet1.xml):
+  A1  borderId=1  [top=thin(FF0000),    left=thin(FF0000)]
+  B1  borderId=2  [top=thick(0000FF),   right=thick(0000FF)]
+  A2  borderId=4  [bottom=medium(00FF00), left=medium(00FF00)]
+  B2  borderId=5  [bottom=dashed(FF00FF), right=dashed(FF00FF)]
+  D1  borderId=3  [top=thick(0000FF),   bottom=thick(0000FF)]
+```
+
+**Prompt:**
+> For each cell in `A1..B2` (a merged range) and `D1` (unmerged reference),
+> report the border style and color on each side.
+
+### openpyxl
+
+```python
+wb = load_workbook(SRC)
+ws = wb["Data"]
+for ref in ("A1","B1","A2","B2","D1"):
+    b = ws[ref].border
+    print(ref, b.top, b.bottom, b.left, b.right)
+```
+
+Output (formatted):
+
+```
+A1  type=Cell        top=thin(FF0000)   bottom=dashed(000000) left=thin(FF0000)    right=dashed(000000)
+B1  type=MergedCell  top=thin(000000)   bottom=none           left=none             right=dashed(000000)
+A2  type=MergedCell  top=none           bottom=dashed(000000) left=thin(000000)     right=none
+B2  type=MergedCell  top=none           bottom=dashed(000000) left=none             right=dashed(000000)
+D1  type=Cell        top=thick(0000FF)  bottom=thick(0000FF)  left=none             right=none
+```
+
+Compare to the XML ground truth above:
+
+- `A1` is the top-left (a real `Cell`, not a `MergedCell`). It should have
+  `top=thin(FF0000), left=thin(FF0000)` per the XML — openpyxl adds bogus
+  `bottom=dashed(000000)` and `right=dashed(000000)` that are not in the XML.
+- `B1` should be `top=thick(0000FF), right=thick(0000FF)`. openpyxl returns
+  `top=thin(000000)` (wrong style + wrong colour: zeros) and
+  `right=dashed(000000)` (wrong style and colour).
+- `A2` should be `bottom=medium(00FF00), left=medium(00FF00)`. openpyxl
+  returns `bottom=dashed(000000)` (wrong style, zero colour) and
+  `left=thin(000000)` (wrong style, zero colour).
+- `B2` should be `bottom=dashed(FF00FF), right=dashed(FF00FF)`. openpyxl
+  returns the right style (`dashed`) but zeroes the colour to `000000` for
+  every side.
+- `D1` (unmerged reference) is returned **correctly** — the bug is
+  specifically on merged ranges.
+
+An agent auditing the workbook's formatting, or writing a style migration,
+cannot trust any of those reads. Every colour is lost on merged cells and
+multiple styles are fabricated out of thin air.
+
+### witan
+
+```javascript
+for (const a of ["A1","B1","A2","B2","D1"]) {
+  out[a] = (await xlsx.getStyle(wb, `Data!${a}`)).border
+}
+```
+
+```json
+{
+  "A1": { "left": { "style":"thin",    "color":"#FF0000" }, "top":    { "style":"thin",    "color":"#FF0000" } },
+  "B1": { "right":{ "style":"thick",   "color":"#0000FF" }, "top":    { "style":"thick",   "color":"#0000FF" } },
+  "A2": { "left": { "style":"medium",  "color":"#00FF00" }, "bottom": { "style":"medium",  "color":"#00FF00" } },
+  "B2": { "right":{ "style":"dashed",  "color":"#FF00FF" }, "bottom": { "style":"dashed",  "color":"#FF00FF" } },
+  "D1": { "top":  { "style":"thick",   "color":"#0000FF" }, "bottom": { "style":"thick",   "color":"#0000FF" } }
+}
+```
+
+Matches the XML ground truth cell-by-cell: the right styles, the right
+colours, and only the perimeter edges each cell actually owns.
+
+---
+
 ## Reproducing the whole suite
 
 From `~/dev/witan-vs-openpyxl/`:
@@ -1133,6 +1331,17 @@ witan xlsx exec outputs/case11_witan.xlsx --script scripts/case11_witan.js --sav
 uv run --with openpyxl python scripts/case12_openpyxl.py outputs/case12_openpyxl.xlsx
 rm -f outputs/case12_witan.xlsx
 witan xlsx exec outputs/case12_witan.xlsx --create --save --script scripts/case12_witan.js
+
+# Case 13
+uv run --with openpyxl python scripts/case13_openpyxl.py outputs/case13_openpyxl.xlsx
+rm -f outputs/case13_witan.xlsx
+witan xlsx exec outputs/case13_witan.xlsx --create --save --script scripts/case13_witan.js
+
+# Case 14
+rm -f fixtures/merge_borders.xlsx
+witan xlsx exec fixtures/merge_borders.xlsx --create --save --script scripts/case14_build.js
+uv run --with openpyxl python scripts/case14_openpyxl.py fixtures/merge_borders.xlsx
+witan xlsx exec fixtures/merge_borders.xlsx --script scripts/case14_witan_read.js
 
 # Excel validation (generic helper)
 uv run --with xlwings python scripts/excel_read.py <file> <sheet!addr> [<sheet!addr> …]
