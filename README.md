@@ -11,28 +11,61 @@ openpyxl 3.1.5, xlwings 0.35.1, and Microsoft Excel for Mac
 (macOS Darwin 25.3.0). Excel is used only as ground truth via xlwings
 automation. Python is launched via `uv run --with openpyxl --with xlwings python …`.
 
+Openpyxl + LibreOffice was retested 2026-06-03 with openpyxl 3.1.5 and
+LibreOffice 26.2.1.2. The pairing means: run the openpyxl workflow, then let
+LibreOffice Calc headless open/recalculate/save the workbook where a workbook
+exists. For Case 3, LibreOffice is used as the `.xls` to `.xlsx` converter
+before openpyxl reads the converted file.
+
 All fixtures, scripts, and outputs live under `~/dev/witan-vs-openpyxl/`.
 
 ## Summary
 
-| # | Task | openpyxl | witan |
-|---|------|----------|-------|
-| 1 | What-if on an NPV formula | ✗ returns `None` (cached values wiped on save) | ✓ correct 68407.85 |
-| 2 | Iterative calc after input change | ✗ returns `None` for every circular cell | ✓ correct 35000 |
-| 3 | Read a legacy `.xls` file | ✗ `InvalidFileException` | ✓ auto-converts and reads |
-| 4 | Round-trip threaded comments | ✗ silent data loss (`threadedcomments/` stripped) | ✓ all parts preserved |
-| 5 | Write `=UNIQUE(FILTER(...))` dynamic array | ✗ Excel repair prompt removes the formula | ✓ spill evaluates correctly |
-| 6 | Add a single-series LineChart | ✗ emits 5 phantom `<ser>` elements | ✓ single correct series |
-| 7 | Parse / evaluate `A1#` spill reference | ✗ `Tokenizer` raises `TokenizerError` on `#` | ✓ evaluates directly |
-| 8 | Describe and extend a What-If Data Table | ✗ no API; blind writes silently break the table | ✓ structured `getDataTable`/`addDataTable` |
-| 9 | Conditional format over a discontiguous range | ✗ documented path crashes in `save()` | ✓ single rule with discontiguous `address` |
-| 10 | Rename a sheet referenced by formulas | ✗ formulas still say `=Inputs!…` after rename | ✓ every reference rewritten |
-| 11 | Insert a row above data used by formulas | ✗ all formulas stale; wrong values, no warning | ✓ formulas, named ranges, array-formula `ref` all shifted |
-| 12 | Rich text with a whitespace-only run | ✗ Excel repair removes the whitespace runs | ✓ `xml:space="preserve"` set on every whitespace run |
-| 13 | Overlapping cell merges | ✗ serialises both; Excel repair removes **all** merges | ✓ deduplicates; file opens cleanly with one merge |
-| 14 | Read per-cell borders inside a merge | ✗ returns garbled/hallucinated borders; colors zeroed, sides swapped | ✓ returns each cell's actual XML border |
+| # | Task | openpyxl | openpyxl + LibreOffice | witan |
+|---|------|----------|------------------------|-------|
+| 1 | What-if on an NPV formula | ✗ returns `None` (cached values wiped on save) | ✓ LibreOffice recalculates/cache-saves 68407.85 | ✓ correct 68407.85 |
+| 2 | Iterative calc after input change | ✗ returns `None` for every circular cell | ✓ LibreOffice iterates/cache-saves ≈35000 | ✓ correct 35000 |
+| 3 | Read a legacy `.xls` file | ✗ `InvalidFileException` | ✓ LibreOffice converts to `.xlsx`; openpyxl reads | ✓ auto-converts and reads |
+| 4 | Round-trip threaded comments | ✗ silent data loss (`threadedcomments/` stripped) | ✗ threaded parts already stripped | ✓ all parts preserved |
+| 5 | Write `=UNIQUE(FILTER(...))` dynamic array | ✗ Excel repair prompt removes the formula | ✗ LibreOffice saves `#NAME?` | ✓ spill evaluates correctly |
+| 6 | Add a single-series LineChart | ✗ emits 5 phantom `<ser>` elements | ✗ still 5 `<ser>` elements after LibreOffice | ✓ single correct series |
+| 7 | Parse / evaluate `A1#` spill reference | ✗ `Tokenizer` raises `TokenizerError` on `#` | ✓ LibreOffice rewrites/caches spill references | ✓ evaluates directly |
+| 8 | Describe and extend a What-If Data Table | ✗ no API; blind writes silently break the table | ✗ data table not extended; row remains blank | ✓ structured `getDataTable`/`addDataTable` |
+| 9 | Conditional format over a discontiguous range | ✗ documented path crashes in `save()` | ✗ documented paths still crash before LibreOffice can help | ✓ single rule with discontiguous `address` |
+| 10 | Rename a sheet referenced by formulas | ✗ formulas still say `=Inputs!…` after rename | ✗ formulas still reference missing `Inputs` | ✓ every reference rewritten |
+| 11 | Insert a row above data used by formulas | ✗ all formulas stale; wrong values, no warning | ✗ LibreOffice recalculates stale formulas | ✓ formulas, named ranges, array-formula `ref` all shifted |
+| 12 | Rich text with a whitespace-only run | ✗ Excel repair removes the whitespace runs | ✓ LibreOffice rewrites runs with `xml:space="preserve"` | ✓ `xml:space="preserve"` set on every whitespace run |
+| 13 | Overlapping cell merges | ✗ serialises both; Excel repair removes **all** merges | ✗ overlapping merges remain serialized | ✓ deduplicates; file opens cleanly with one merge |
+| 14 | Read per-cell borders inside a merge | ✗ returns garbled/hallucinated borders; colors zeroed, sides swapped | ✗ openpyxl still exposes merged-cell edge borders, not per-cell XML | ✓ returns each cell's actual XML border |
 
 Key: ✓ works · ✗ fails.
+
+## Openpyxl + LibreOffice retest
+
+Reproduction command:
+
+```bash
+python3 scripts/retest_openpyxl_libreoffice.py
+```
+
+The retest produced **5 pass, 9 fail**:
+
+| # | Result | Finding |
+|---|--------|---------|
+| 1 | ✓ | LibreOffice recalculates the NPV after openpyxl changes `Assumptions!B5`; `Summary!E23 = 68407.8454990259`. |
+| 2 | ✓ | LibreOffice runs the iterative calculation after openpyxl changes `Inputs!B4`; `Model!B7 ≈ 34999.999994`. |
+| 3 | ✓ | LibreOffice converts `fixtures/formulas.xls` to `.xlsx`; openpyxl then reads `B3 = 4`. |
+| 4 | ✗ | After openpyxl saves, only `xl/comments1.xml` remains; threaded comment/person parts are gone and LibreOffice cannot restore them. |
+| 5 | ✗ | LibreOffice does not rescue the openpyxl-written dynamic array formula; `Summary!D2` becomes `#NAME?` and no spill values are produced. |
+| 6 | ✗ | The chart still contains 5 `<ser>` elements after LibreOffice resaves it. |
+| 7 | ✓ | LibreOffice rewrites `D2#` consumers to `_xlfn.anchorarray(...)` forms and saves cached values for `F2`, `G2`, and `H2`; openpyxl tokenization no longer fails on the resaved file. |
+| 8 | ✗ | Writing `D7 = 90` does not extend the data table; `E7:I7` remain blank and the data-table formula is not extended. |
+| 9 | ✗ | The comma-separated and `MultiCellRange` documented paths still fail in openpyxl before LibreOffice has a usable workbook to process; only the space-separated workaround saves. |
+| 10 | ✗ | LibreOffice does not rewrite formulas after openpyxl renames `Inputs` to `Parameters`; formulas still reference `inputs!…`. |
+| 11 | ✗ | LibreOffice recalculates whatever stale formulas openpyxl left behind; formulas, defined names, and array refs are still not shifted. |
+| 12 | ✓ | LibreOffice rewrites the rich text into `sharedStrings.xml` and adds `xml:space="preserve"` to whitespace-sensitive runs. |
+| 13 | ✗ | LibreOffice leaves both overlapping merge ranges serialized: `A1:B2` and `A2:C3`. |
+| 14 | ✗ | LibreOffice normalizes the merge border XML, but openpyxl still reports edge-derived `MergedCell` borders rather than the actual per-cell XML styles. |
 
 ## Failure classes
 
