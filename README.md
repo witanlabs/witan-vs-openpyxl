@@ -89,37 +89,6 @@ Pass counts across the 51 cases below:
 
 Key: ✓ works · ✗ fails.
 
-## Original Openpyxl + LibreOffice Retest
-
-This is the original Openpyxl + LibreOffice baseline retest for **Cases 1-14**.
-Later cases are covered by the summary table above and their individual repro
-scripts below.
-
-Reproduction command for Cases 1-14:
-
-```bash
-python3 scripts/retest_openpyxl_libreoffice.py
-```
-
-The original 14-case retest produced **5 pass, 9 fail**:
-
-| # | Result | Finding |
-|---|--------|---------|
-| 1 | ✓ | LibreOffice recalculates the NPV after openpyxl changes `Assumptions!B5`; `Summary!E23 = 68407.8454990259`. |
-| 2 | ✓ | LibreOffice runs the iterative calculation after openpyxl changes `Inputs!B4`; `Model!B7 ≈ 34999.999994`. |
-| 3 | ✓ | LibreOffice converts `fixtures/formulas.xls` to `.xlsx`; openpyxl then reads `B3 = 4`. |
-| 4 | ✗ | After openpyxl saves, only `xl/comments1.xml` remains; threaded comment/person parts are gone and LibreOffice cannot restore them. |
-| 5 | ✗ | LibreOffice does not rescue the openpyxl-written dynamic array formula; `Summary!D2` becomes `#NAME?` and no spill values are produced. |
-| 6 | ✗ | The chart still contains 5 `<ser>` elements after LibreOffice resaves it. |
-| 7 | ✓ | LibreOffice rewrites `D2#` consumers to `_xlfn.anchorarray(...)` forms and saves cached values for `F2`, `G2`, and `H2`; openpyxl tokenization no longer fails on the resaved file. |
-| 8 | ✗ | Writing `D7 = 90` does not extend the data table; `E7:I7` remain blank and the data-table formula is not extended. |
-| 9 | ✗ | The comma-separated and `MultiCellRange` documented paths still fail in openpyxl before LibreOffice has a usable workbook to process; only the space-separated workaround saves. |
-| 10 | ✗ | LibreOffice does not rewrite formulas after openpyxl renames `Inputs` to `Parameters`; formulas still reference `inputs!…`. |
-| 11 | ✗ | LibreOffice recalculates whatever stale formulas openpyxl left behind; formulas, defined names, and array refs are still not shifted. |
-| 12 | ✓ | LibreOffice rewrites the rich text into `sharedStrings.xml` and adds `xml:space="preserve"` to whitespace-sensitive runs. |
-| 13 | ✗ | LibreOffice leaves both overlapping merge ranges serialized: `A1:B2` and `A2:C3`. |
-| 14 | ✗ | LibreOffice normalizes the merge border XML, but openpyxl still reports edge-derived `MergedCell` borders rather than the actual per-cell XML styles. |
-
 ## Failure classes
 
 Grouped by the *kind* of failure each case surfaces on the openpyxl side:
