@@ -1,4 +1,4 @@
-# witan xlsx exec vs openpyxl — 14 reproducible test cases
+# witan xlsx exec vs openpyxl — 18 reproducible test cases
 
 > [!NOTE]
 > **Scope.** A handful of examples showing places where `witan xlsx exec` has
@@ -37,6 +37,10 @@ All fixtures, scripts, and outputs live under `~/dev/witan-vs-openpyxl/`.
 | 12 | Rich text with a whitespace-only run | ✗ Excel repair removes the whitespace runs | ✓ LibreOffice rewrites runs with `xml:space="preserve"` | ✓ `xml:space="preserve"` set on every whitespace run |
 | 13 | Overlapping cell merges | ✗ serialises both; Excel repair removes **all** merges | ✗ overlapping merges remain serialized | ✓ deduplicates; file opens cleanly with one merge |
 | 14 | Read per-cell borders inside a merge | ✗ returns garbled/hallucinated borders; colors zeroed, sides swapped | ✗ openpyxl still exposes merged-cell edge borders, not per-cell XML | ✓ returns each cell's actual XML border |
+| 15 | Evaluate inline Excel `LAMBDA` | ✗ no cached result after write | ✗ LibreOffice returns `#VALUE!` | ✓ returns 11 |
+| 16 | Evaluate `LET`-bound Excel `LAMBDA` | ✗ no cached result after write | ✗ LibreOffice returns `#VALUE!` | ✓ returns 11 |
+| 17 | Evaluate Excel `MAP(..., LAMBDA(...))` | ✗ no cached result after write | ✗ LibreOffice returns `#NAME?` | ✓ returns `{2;4;6}` |
+| 18 | Recalculate a What-If Data Table after input change | ✗ formula result wiped and table body stale | ✗ LibreOffice rewrites `TABLE(...)` formulas but leaves table body blank | ✓ table body recalculated |
 
 Key: ✓ works · ✗ fails.
 
@@ -71,8 +75,8 @@ The retest produced **5 pass, 9 fail**:
 
 Grouped by the *kind* of failure each case surfaces on the openpyxl side:
 
-- **Silent wrong answer** (agent reports without any error signal) — 1, 2, 4, 11, 14
-- **Cannot complete the task at all** (hard error, crash, or missing API) — 3, 6, 7, 8, 9
+- **Silent wrong answer** (agent reports without any error signal) — 1, 2, 4, 11, 14, 18
+- **Cannot complete the task at all** (hard error, crash, unsupported formula, or missing API) — 3, 6, 7, 8, 9, 15, 16, 17
 - **File requires Excel repair** (produced file flagged as corrupt) — 5, 12, 13
 - **Broken XML or structure** (file loads but is semantically wrong) — 6, 10, 11
 
@@ -1307,6 +1311,161 @@ colours, and only the perimeter edges each cell actually owns.
 
 ---
 
+## Cases 15-17 — Modern Excel `LAMBDA` family formulas
+
+**Verdict**
+- openpyxl — **✗** Writes the formulas, but has no calculation engine and
+  `data_only=True` returns `None`.
+- openpyxl + LibreOffice — **✗** LibreOffice Calc 26.2.1.2 opens the
+  openpyxl-written files but recalculates the formulas to `#VALUE!` or
+  `#NAME?`.
+- witan — **✓** Evaluates all five formulas directly.
+
+**Script:** `scripts/retest_modern_excel_lambda.py`. The script builds the
+openpyxl workbooks under `outputs/modern_excel_lambda/`, runs Witan via
+`npx witan`, and then resaves the openpyxl outputs through LibreOffice.
+
+**Prompt:**
+> Calculate these modern Excel formulas and report their results.
+
+| # | Formula | Expected | openpyxl | openpyxl + LibreOffice | witan |
+|---|---------|----------|----------|------------------------|-------|
+| 15 | `=LAMBDA(x,x+1)(10)` | `11` | `None` | `#VALUE!` | `11` |
+| 16 | `=LET(f,LAMBDA(x,x+1),f(10))` | `11` | `None` | `#VALUE!` | `11` |
+| 17 | `=MAP({1;2;3},LAMBDA(x,x*2))` | `{2;4;6}` | `None` | `#NAME?` | `{2;4;6}` |
+
+The openpyxl workbooks store the formulas using their OOXML `_xlfn` /
+`_xlpm` prefixes, for example:
+
+```xml
+<f>_xlfn.LAMBDA(_xlpm.x,_xlpm.x+1)(10)</f>
+```
+
+LibreOffice preserves the formula text on save but cannot evaluate it:
+
+```
+15 Inline LAMBDA
+   expected: 11
+   witan: 11 error=None
+   openpyxl data_only after write: None
+   openpyxl + LibreOffice data_only: '#VALUE!'
+```
+
+The helper function that requires a `LAMBDA` callback (`MAP`) fails even
+earlier in LibreOffice with `#NAME?`.
+
+---
+
+## Case 18 — Recalculate a What-If Data Table after an input change
+
+**Verdict**
+- openpyxl — **✗** Writes the changed input but cannot recalculate the formula
+  or the data-table body. Some table cells retain stale cached values.
+- openpyxl + LibreOffice — **✗** LibreOffice recalculates the ordinary formula
+  cell, but the What-If Data Table body is left blank. It rewrites the table
+  body as `TABLE(...)` formulas without cached results.
+- witan — **✓** `setCells` recalculates the ordinary formula and every
+  data-table output cell.
+
+**Fixture:** `fixtures/sensitivity2d.xlsx` from Case 8. It contains a
+two-variable What-If Data Table over `Model!D1:I6`, with table outputs in
+`Model!E2:I6`.
+
+**Script:** `scripts/retest_whatif_datatable_recalc.py`. The script copies the
+fixture into `outputs/whatif_datatable_recalc/`, runs the Witan update, runs
+the openpyxl update, and then resaves the openpyxl output through LibreOffice.
+
+**Prompt:**
+> In `sensitivity2d.xlsx`, change fixed cost `Model!B4` from `5000` to
+> `6000`, then report the updated What-If Data Table values.
+
+Key expected cells after the change:
+
+```json
+{
+  "D1": 14000,
+  "E2": 12800,
+  "F3": 30000,
+  "G4": 52200,
+  "H5": 79400,
+  "I6": 111600
+}
+```
+
+### openpyxl
+
+```python
+wb = load_workbook(dst)
+wb["Model"]["B4"] = 6000
+wb.save(dst)
+```
+
+`data_only=True` after the save:
+
+```json
+{
+  "D1": null,
+  "E2": null,
+  "F3": 31000,
+  "G4": 53200,
+  "H5": 80400,
+  "I6": 112600
+}
+```
+
+The ordinary formula/cache is wiped (`D1 = None`), the data-table anchor is
+blank (`E2 = None`), and the remaining sampled table cells are stale values
+from before the fixed-cost change.
+
+### openpyxl + LibreOffice
+
+LibreOffice recalculates the ordinary formula result but not the data table:
+
+```json
+{
+  "D1": 14000,
+  "E2": null,
+  "F3": null,
+  "G4": null,
+  "H5": null,
+  "I6": null
+}
+```
+
+The saved formulas show why the table body is blank:
+
+```text
+E2 = TABLE($D$1,$B$2,$D2,$B$1,E$1)
+F3 = TABLE($D$1,$B$2,$D3,$B$1,F$1)
+...
+```
+
+LibreOffice serialises `TABLE(...)` formulas, but does not save calculated
+values for them.
+
+### witan
+
+```javascript
+const r = await xlsx.setCells(wb, [{address:"Model!B4", value:6000}])
+```
+
+Sampled touched cells:
+
+```json
+{
+  "D1": 14000,
+  "E2": 12800,
+  "F3": 30000,
+  "G4": 52200,
+  "H5": 79400,
+  "I6": 111600
+}
+```
+
+Matches the expected table recalculation.
+
+---
+
 ## Reproducing the whole suite
 
 From `~/dev/witan-vs-openpyxl/`:
@@ -1397,6 +1556,12 @@ witan xlsx exec fixtures/merge_borders.xlsx --create --save --script scripts/cas
 uv run --with openpyxl python scripts/case14_openpyxl.py fixtures/merge_borders.xlsx
 witan xlsx exec fixtures/merge_borders.xlsx --script scripts/case14_witan_read.js
 
+# Cases 15-17
+python3 scripts/retest_modern_excel_lambda.py
+
+# Case 18
+python3 scripts/retest_whatif_datatable_recalc.py
+
 # Excel validation (generic helper)
 uv run --with xlwings python scripts/excel_read.py <file> <sheet!addr> [<sheet!addr> …]
 ```
@@ -1417,3 +1582,12 @@ uv run --with xlwings python scripts/excel_read.py <file> <sheet!addr> [<sheet!a
   truncate, matching the tracker report, but xlwings driving live Excel
   produces the same result because Excel itself enforces the limit silently.
   Not an openpyxl-specific bug, so dropped from the suite.
+- **VBA, SQL.REQUEST, Power Query / Power Pivot** — skipped for the
+  LibreOffice-gap expansion because witan is the control and those are not
+  currently witan-supported workflows.
+- **CUBE, RTD, IMAGE** — also fail in LibreOffice (`#NAME?` or stale cache
+  behavior depending on how the file is authored), but `npx witan` does not
+  evaluate them either, so they are not useful comparison cases for this repo.
+- **REDUCE and SCAN with LAMBDA** — Witan passes them and LibreOffice fails
+  them, but they are too similar to Case 17 (`MAP` with `LAMBDA`) to justify
+  separate cases in this compact suite.
