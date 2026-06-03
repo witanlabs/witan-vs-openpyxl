@@ -1,4 +1,4 @@
-# witan xlsx exec vs openpyxl — 18 reproducible test cases
+# witan xlsx exec vs openpyxl — 51 reproducible test cases
 
 > [!NOTE]
 > **Scope.** A handful of examples showing places where `witan xlsx exec` has
@@ -6,9 +6,9 @@
 > a realistic Excel task. **Not** a comprehensive feature list or bug list of
 > either library — just some concrete cases reproduced end-to-end.
 
-All cases tested 2026-04-20 against witan CLI 0.9.0 (API v2.20.0),
-openpyxl 3.1.5, xlwings 0.35.1, and Microsoft Excel for Mac
-(macOS Darwin 25.3.0). Excel is used only as ground truth via xlwings
+The original Excel-ground-truth cases were tested 2026-04-20 against witan CLI
+0.9.0 (API v2.20.0), openpyxl 3.1.5, xlwings 0.35.1, and Microsoft Excel for
+Mac (macOS Darwin 25.3.0). Excel is used only as ground truth via xlwings
 automation. Python is launched via `uv run --with openpyxl --with xlwings python …`.
 
 Openpyxl + LibreOffice was retested 2026-06-03 with openpyxl 3.1.5 and
@@ -17,42 +17,91 @@ LibreOffice Calc headless open/recalculate/save the workbook where a workbook
 exists. For Case 3, LibreOffice is used as the `.xls` to `.xlsx` converter
 before openpyxl reads the converted file.
 
+Some chart/rendering cases use the local Witan Alfred
+`../witan-alfred/bin/publish/xlsx-serve` binary because those chart surfaces
+or render APIs are available there before the public `npx witan` CLI.
+
 All fixtures, scripts, and outputs live under `~/dev/witan-vs-openpyxl/`.
 
 ## Summary
 
-| # | Task | openpyxl | openpyxl + LibreOffice | witan |
-|---|------|----------|------------------------|-------|
-| 1 | What-if on an NPV formula | ✗ returns `None` (cached values wiped on save) | ✓ LibreOffice recalculates/cache-saves 68407.85 | ✓ correct 68407.85 |
-| 2 | Iterative calc after input change | ✗ returns `None` for every circular cell | ✓ LibreOffice iterates/cache-saves ≈35000 | ✓ correct 35000 |
-| 3 | Read a legacy `.xls` file | ✗ `InvalidFileException` | ✓ LibreOffice converts to `.xlsx`; openpyxl reads | ✓ auto-converts and reads |
-| 4 | Round-trip threaded comments | ✗ silent data loss (`threadedcomments/` stripped) | ✗ threaded parts already stripped | ✓ all parts preserved |
-| 5 | Write `=UNIQUE(FILTER(...))` dynamic array | ✗ Excel repair prompt removes the formula | ✗ LibreOffice saves `#NAME?` | ✓ spill evaluates correctly |
-| 6 | Add a single-series LineChart | ✗ emits 5 phantom `<ser>` elements | ✗ still 5 `<ser>` elements after LibreOffice | ✓ single correct series |
-| 7 | Parse / evaluate `A1#` spill reference | ✗ `Tokenizer` raises `TokenizerError` on `#` | ✓ LibreOffice rewrites/caches spill references | ✓ evaluates directly |
-| 8 | Describe and extend a What-If Data Table | ✗ no API; blind writes silently break the table | ✗ data table not extended; row remains blank | ✓ structured `getDataTable`/`addDataTable` |
-| 9 | Conditional format over a discontiguous range | ✗ documented path crashes in `save()` | ✗ documented paths still crash before LibreOffice can help | ✓ single rule with discontiguous `address` |
-| 10 | Rename a sheet referenced by formulas | ✗ formulas still say `=Inputs!…` after rename | ✗ formulas still reference missing `Inputs` | ✓ every reference rewritten |
-| 11 | Insert a row above data used by formulas | ✗ all formulas stale; wrong values, no warning | ✗ LibreOffice recalculates stale formulas | ✓ formulas, named ranges, array-formula `ref` all shifted |
-| 12 | Rich text with a whitespace-only run | ✗ Excel repair removes the whitespace runs | ✓ LibreOffice rewrites runs with `xml:space="preserve"` | ✓ `xml:space="preserve"` set on every whitespace run |
-| 13 | Overlapping cell merges | ✗ serialises both; Excel repair removes **all** merges | ✗ overlapping merges remain serialized | ✓ deduplicates; file opens cleanly with one merge |
-| 14 | Read per-cell borders inside a merge | ✗ returns garbled/hallucinated borders; colors zeroed, sides swapped | ✗ openpyxl still exposes merged-cell edge borders, not per-cell XML | ✓ returns each cell's actual XML border |
-| 15 | Evaluate inline Excel `LAMBDA` | ✗ no cached result after write | ✗ LibreOffice returns `#VALUE!` | ✓ returns 11 |
-| 16 | Evaluate `LET`-bound Excel `LAMBDA` | ✗ no cached result after write | ✗ LibreOffice returns `#VALUE!` | ✓ returns 11 |
-| 17 | Evaluate Excel `MAP(..., LAMBDA(...))` | ✗ no cached result after write | ✗ LibreOffice returns `#NAME?` | ✓ returns `{2;4;6}` |
-| 18 | Recalculate a What-If Data Table after input change | ✗ formula result wiped and table body stale | ✗ LibreOffice rewrites `TABLE(...)` formulas but leaves table body blank | ✓ table body recalculated |
+Pass counts across the 51 cases below:
+
+| Toolchain | Pass | Fail |
+|-----------|------|------|
+| witan | 51 | 0 |
+| openpyxl | 0 | 51 |
+| openpyxl + LibreOffice | 7 | 44 |
+
+| # | Task | witan | openpyxl | openpyxl + LibreOffice |
+|---|------|-------|----------|------------------------|
+| 1 | What-if on an NPV formula | ✓ correct 68407.85 | ✗ returns `None` (cached values wiped on save) | ✓ LibreOffice recalculates/cache-saves 68407.85 |
+| 2 | Iterative calc after input change | ✓ correct 35000 | ✗ returns `None` for every circular cell | ✓ LibreOffice iterates/cache-saves ≈35000 |
+| 3 | Read a legacy `.xls` file | ✓ auto-converts and reads | ✗ `InvalidFileException` | ✓ LibreOffice converts to `.xlsx`; openpyxl reads |
+| 4 | Round-trip threaded comments | ✓ all parts preserved | ✗ silent data loss (`threadedcomments/` stripped) | ✗ threaded parts already stripped |
+| 5 | Write `=UNIQUE(FILTER(...))` dynamic array | ✓ spill evaluates correctly | ✗ Excel repair prompt removes the formula | ✗ LibreOffice saves `#NAME?` |
+| 6 | Add a single-series LineChart | ✓ single correct series | ✗ emits 5 phantom `<ser>` elements | ✗ still 5 `<ser>` elements after LibreOffice |
+| 7 | Parse / evaluate `A1#` spill reference | ✓ evaluates directly | ✗ `Tokenizer` raises `TokenizerError` on `#` | ✓ LibreOffice rewrites/caches spill references |
+| 8 | Describe and extend a What-If Data Table | ✓ structured `getDataTable`/`addDataTable` | ✗ no API; blind writes silently break the table | ✗ data table not extended; row remains blank |
+| 9 | Conditional format over a discontiguous range | ✓ single rule with discontiguous `address` | ✗ documented path crashes in `save()` | ✗ documented paths still crash before LibreOffice can help |
+| 10 | Rename a sheet referenced by formulas | ✓ every reference rewritten | ✗ formulas still say `=Inputs!…` after rename | ✗ formulas still reference missing `Inputs` |
+| 11 | Insert a row above data used by formulas | ✓ formulas, named ranges, array-formula `ref` all shifted | ✗ all formulas stale; wrong values, no warning | ✗ LibreOffice recalculates stale formulas |
+| 12 | Rich text with a whitespace-only run | ✓ `xml:space="preserve"` set on every whitespace run | ✗ Excel repair removes the whitespace runs | ✓ LibreOffice rewrites runs with `xml:space="preserve"` |
+| 13 | Overlapping cell merges | ✓ deduplicates; file opens cleanly with one merge | ✗ serialises both; Excel repair removes **all** merges | ✗ overlapping merges remain serialized |
+| 14 | Read per-cell borders inside a merge | ✓ returns each cell's actual XML border | ✗ returns garbled/hallucinated borders; colors zeroed, sides swapped | ✗ openpyxl still exposes merged-cell edge borders, not per-cell XML |
+| 15 | Evaluate inline Excel `LAMBDA` | ✓ returns 11 | ✗ no cached result after write | ✗ LibreOffice returns `#VALUE!` |
+| 16 | Evaluate `LET`-bound Excel `LAMBDA` | ✓ returns 11 | ✗ no cached result after write | ✗ LibreOffice returns `#VALUE!` |
+| 17 | Evaluate Excel `MAP(..., LAMBDA(...))` | ✓ returns `{2;4;6}` | ✗ no cached result after write | ✗ LibreOffice returns `#NAME?` |
+| 18 | Recalculate a What-If Data Table after input change | ✓ table body recalculated | ✗ formula result wiped and table body stale | ✗ LibreOffice rewrites `TABLE(...)` formulas but leaves table body blank |
+| 19 | Recalculate a 3D sheet reference | ✓ returns 650 | ✗ no cached result after write | ✓ LibreOffice recalculates 650 |
+| 20 | Recalculate structured-reference formulas over an Excel table | ✓ returns 650 / 400 | ✗ no cached result after write | ✓ LibreOffice recalculates 650 / 400 |
+| 21 | Author a combo chart with secondary axis and exact placement | ✓ clean combo chart spec | ✗ rough axis/category/anchor semantics | ✗ LibreOffice repairs some axes but not marker/anchor |
+| 22 | Author a waterfall chart with totals | ✓ clean waterfall chart spec | ✗ no native waterfall chart API | ✗ no source chart for LibreOffice to repair |
+| 23 | Author a stock OHLC chart with exact placement/style | ✓ clean stock OHLC chart spec | ✗ stock chart exists but category/legend/anchor/style differ | ✗ LibreOffice repairs category type but not legend/anchor/style |
+| 24 | Author a chart with multi-level category labels | ✓ clean multi-level category spec | ✗ category ref serialized as numeric, not multi-level string | ✗ LibreOffice repairs category type but not anchor |
+| 25 | Author a smooth scatter chart with markers and exact placement/style | ✓ clean scatter chart spec | ✗ marker/style/axis/anchor semantics incomplete | ✗ LibreOffice repairs marker/axis but not anchor/style |
+| 26 | Copy a formula with relative-reference adjustment | ✓ formula rebased and recalculated | ✗ formula copied literally; no cached result | ✗ recalculates the wrong copied formula |
+| 27 | Sort worksheet rows by a key column | ✓ rows actually reordered | ✗ only writes a sort condition; rows unchanged | ✗ rows still unchanged after save |
+| 28 | Auto-fit worksheet columns to content | ✓ concrete fitted widths written | ✗ writes `bestFit` hint with default width | ✗ width remains default after save |
+| 29 | Evaluate `REGEXREPLACE` with a negative occurrence | ✓ returns `a-b-c-X` | ✗ no cached result after write | ✗ LibreOffice returns `#NAME?` |
+| 30 | Evaluate `COUNTIF` with criteria over 255 characters | ✓ returns `#VALUE!` | ✗ no cached result after write | ✗ LibreOffice returns `2` instead of `#VALUE!` |
+| 31 | Lint approximate lookup over an unsorted range | ✓ flags D002 | ✗ no semantic lint API | ✗ saves without warning |
+| 32 | Lint duplicate lookup keys | ✓ flags D007 | ✗ no semantic lint API | ✗ saves without warning |
+| 33 | Lint empty-cell coercion in arithmetic | ✓ flags D003 | ✗ no semantic lint API | ✗ saves without warning |
+| 34 | Lint numeric aggregate ignoring text | ✓ flags D005 | ✗ no semantic lint API | ✗ saves without warning |
+| 35 | Lint mixed currencies in an aggregate | ✓ flags D008 | ✗ no semantic lint API | ✗ saves without warning |
+| 36 | Preview-render a waterfall chart | ✓ direct range PNG | ✗ no render API | ✗ PDF export renders malformed chart |
+| 37 | Preview-render text layout | ✓ direct range PNG | ✗ no render API | ✗ PDF export differs in scale/typography/layout |
+| 38 | Evaluate a pathological regex formula safely | ✓ bounded non-backtracking result | ✗ no cached result after write | ✗ LibreOffice returns `#NAME?` |
+| 39 | Search workbook text with a pathological regex safely | ✓ bounded non-backtracking search | ✗ naive Python `re` search times out | ✗ LibreOffice resave does not change the timeout |
+| 40 | Reject malformed formula authoring before mutation | ✓ rejects and leaves cell unchanged | ✗ serializes malformed formula text | ✗ rewrites to different formula and caches `#VALUE!` |
+| 41 | Set multiline text and reflow row height | ✓ `setCells` writes Excel-style row height | ✗ row height remains unset | ✗ computes a different row height |
+| 42 | Author and render a bubble chart with bubble-specific properties | ✓ exact bubble spec and all bubbles rendered | ✗ anchor/axis/style semantics incomplete | ✗ drops bubble properties and renders only one bubble |
+| 43 | Render bar/column chart variations | ✓ full-range column renders | ✗ no render API | ✗ PDF export crops the category range |
+| 44 | Render line chart variations | ✓ gap-span and hi-low/up-down bars rendered | ✗ no render API | ✗ drops hi-low/up-down bars and crops the range |
+| 45 | Render area chart variations | ✓ negative stacked area rendered | ✗ no render API | ✗ PDF export crops the category range |
+| 46 | Render pie/doughnut chart variations | ✓ exploded pie and two-ring doughnut rendered | ✗ no render API | ✗ doughnut geometry/export differs |
+| 47 | Render scatter/trendline chart variations | ✓ scatter and power trendline rendered | ✗ no render API | ✗ crops range and changes trendline presentation |
+| 48 | Render custom error-bar chart variations | ✓ asymmetric error bars rendered | ✗ no render API | ✗ drops the error bars |
+| 49 | Render stock chart with multi-level labels | ✓ OHLC roles and multi-level labels rendered | ✗ no render API | ✗ loses roles/labels and crops the range |
+| 50 | Render secondary-axis combo/layout chart | ✓ secondary axis and full range rendered | ✗ no render API | ✗ PDF export crops the range/legend |
+| 51 | Render chart axis display-unit property | ✓ millions display unit rendered | ✗ no render API | ✗ exports raw values with no unit label |
 
 Key: ✓ works · ✗ fails.
 
-## Openpyxl + LibreOffice retest
+## Original Openpyxl + LibreOffice Retest
 
-Reproduction command:
+This is the original Openpyxl + LibreOffice baseline retest for **Cases 1-14**.
+Later cases are covered by the summary table above and their individual repro
+scripts below.
+
+Reproduction command for Cases 1-14:
 
 ```bash
 python3 scripts/retest_openpyxl_libreoffice.py
 ```
 
-The retest produced **5 pass, 9 fail**:
+The original 14-case retest produced **5 pass, 9 fail**:
 
 | # | Result | Finding |
 |---|--------|---------|
@@ -75,10 +124,15 @@ The retest produced **5 pass, 9 fail**:
 
 Grouped by the *kind* of failure each case surfaces on the openpyxl side:
 
-- **Silent wrong answer** (agent reports without any error signal) — 1, 2, 4, 11, 14, 18
-- **Cannot complete the task at all** (hard error, crash, unsupported formula, or missing API) — 3, 6, 7, 8, 9, 15, 16, 17
+- **Silent wrong answer** (agent reports without any error signal) — 1, 2, 4, 11, 14, 18, 26, 27, 28, 29, 30, 38
+- **Cannot complete the task at all** (hard error, crash, unsupported formula, or missing API) — 3, 6, 7, 8, 9, 15, 16, 17, 19, 20, 22, 27, 28
 - **File requires Excel repair** (produced file flagged as corrupt) — 5, 12, 13
 - **Broken XML or structure** (file loads but is semantically wrong) — 6, 10, 11
+- **Chart authoring/inspection mismatch** — 21, 23, 24, 25, 42
+- **Verifier diagnostics missing** — 31, 32, 33, 34, 35
+- **Rendering/preview mismatch** — 36, 37, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51
+- **Sandboxing/hardening gap** — 38, 39, 40
+- **Layout/dimension mismatch** — 28, 41
 
 ---
 
@@ -1466,6 +1520,914 @@ Matches the expected table recalculation.
 
 ---
 
+## Case 19 — Recalculate a 3D sheet reference
+
+**Verdict**
+- openpyxl — **✗** Writes the changed input but cannot calculate the
+  cross-sheet formula; `data_only=True` returns `None`.
+- openpyxl + LibreOffice — **✓** LibreOffice Calc recalculates the 3D
+  reference and saves the correct cached value.
+- witan — **✓** `setCells` recalculates the formula directly.
+
+**Script:** `scripts/retest_3d_references.py`. The script builds a workbook
+under `outputs/3d_references/` with `Jan`, `Feb`, `Mar`, and `Summary` sheets.
+
+**Prompt:**
+> In the quarterly workbook, change `Feb!B2` from `200` to `250`, then report
+> `Summary!B1`, which contains `=SUM(Jan:Mar!B2)`.
+
+Expected result: `650`.
+
+| Tool | Result |
+|------|--------|
+| openpyxl | `None` |
+| openpyxl + LibreOffice | `650` |
+| witan | `650` |
+
+LibreOffice preserves the formula text:
+
+```text
+=SUM(Jan:Mar!B2)
+```
+
+and saves the recalculated value.
+
+---
+
+## Case 20 — Recalculate structured-reference formulas over an Excel table
+
+**Verdict**
+- openpyxl — **✗** Writes the changed table cell but cannot calculate the
+  formulas; `data_only=True` returns `None` for both summary cells.
+- openpyxl + LibreOffice — **✓** LibreOffice preserves the Excel table and
+  recalculates formulas using structured references.
+- witan — **✓** `setCells` recalculates both structured-reference formulas.
+
+**Script:** `scripts/retest_structured_references.py`. The script builds a
+workbook under `outputs/structured_references/` with a ListObject named
+`SalesTbl` over `Sales!A1:C4`.
+
+**Prompt:**
+> In the `SalesTbl` table, change `Sales!C3` from `200` to `250`, then report
+> `Summary!B1` and `Summary!B2`.
+
+Summary formulas:
+
+```text
+Summary!B1 = SUM(SalesTbl[Amount])
+Summary!B2 = SUMIFS(SalesTbl[Amount], SalesTbl[Region], "North")
+```
+
+Expected result:
+
+```json
+{ "B1": 650, "B2": 400 }
+```
+
+| Tool | Result |
+|------|--------|
+| openpyxl | `{ "B1": null, "B2": null }` |
+| openpyxl + LibreOffice | `{ "B1": 650, "B2": 400 }` |
+| witan | `{ "B1": 650, "B2": 400 }` |
+
+LibreOffice preserves the table range (`SalesTbl = A1:C4`) and the structured
+formula text while saving recalculated values.
+
+---
+
+## Case 21 — Combo chart with secondary axis and exact placement
+
+**Verdict**
+- openpyxl — **✗** Can create a column+line combo chart, but the resulting
+  chart model reads back with rough semantics: secondary value axis on the
+  left, category refs typed as numeric, line marker missing, and the chart
+  anchor ending at `A1`.
+- openpyxl + LibreOffice — **✗** LibreOffice repairs some axis semantics on
+  save (secondary value axis moves right, category refs become strings), but
+  the line marker and chart anchor are still not equivalent to the requested
+  chart.
+- witan — **✓** Authors the requested combo chart directly: line series on
+  secondary axis, column series on primary axis, right-side percent secondary
+  axis, circle marker, and position `E2:M18`.
+
+**Script:** `scripts/retest_combo_chart.py`. The script builds both a
+Witan-authored workbook and an openpyxl-authored workbook under
+`outputs/combo_chart/`, then inspects each workbook with `xlsx.getChart`.
+
+**Prompt:**
+> Create a combo chart with Revenue as clustered columns on the primary value
+> axis and Margin as a line on the secondary value axis. Place the chart from
+> `E2` to `M18`, show the secondary value axis on the right with number format
+> `0%`, and use circle markers for the Margin line.
+
+Expected chart summary:
+
+```json
+{
+  "position": "E2:M18",
+  "groupTypes": ["line", "column"],
+  "groupAxes": ["secondary", "primary"],
+  "secondaryValuePosition": "right",
+  "secondaryValueFormat": "0%",
+  "lineMarker": { "size": 5, "style": "circle" },
+  "lineCategoriesType": "string"
+}
+```
+
+Observed summaries:
+
+```text
+witan:
+  position E2:M18
+  groups line/secondary + column/primary
+  secondary value axis right, format 0%
+  line marker circle
+  category refs string
+
+openpyxl:
+  position E2:A1
+  groups column/primary + line/secondary
+  category axis left
+  secondary value axis left
+  line marker none
+  line category refs number
+
+openpyxl + LibreOffice:
+  position E2:A1
+  groups column/primary + line/secondary
+  secondary value axis right, format 0%
+  line marker none
+  line category refs string
+```
+
+LibreOffice improves the axis interpretation of the openpyxl workbook, but it
+does not make the chart equivalent to the Witan-authored spec.
+
+---
+
+## Case 22 — Waterfall chart with total markers
+
+**Verdict**
+- openpyxl — **✗** Has no native `WaterfallChart` API, so it cannot author
+  the requested chart.
+- openpyxl + LibreOffice — **✗** There is no waterfall chart for LibreOffice
+  to repair because openpyxl cannot create one.
+- witan — **✓** The local Witan Alfred `xlsx-serve` binary authors a waterfall
+  chart directly, including total markers, outside-end value labels, exact
+  placement, and value-axis number format.
+
+**Script:** `scripts/retest_beta_chart_types.py`. The script builds the Witan
+control workbook under `outputs/beta_chart_types/` and checks openpyxl native
+chart support.
+
+**Prompt:**
+> Create a waterfall chart named `Profit Bridge` from `Summary!A2:B7`, place it
+> from `D2` to `L18`, mark Gross and Net as totals, show value labels outside
+> the end of each bar, and format the value axis as `$#,##0`.
+
+Observed summaries:
+
+```text
+witan:
+  position D2:L18
+  groupType waterfall
+  totalIndexes [3, 5]
+  valueAxisFormat $#,##0
+
+openpyxl:
+  supported false
+
+openpyxl + LibreOffice:
+  no source chart; openpyxl cannot author waterfall
+```
+
+---
+
+## Case 23 — Stock OHLC chart with exact placement/style
+
+**Verdict**
+- openpyxl — **✗** Can create a `stockOHLC` chart, but not the exact requested
+  result: the category refs read back as numeric, the legend stays right
+  instead of bottom, no style id is authored, and the chart anchor ends at
+  `A1`.
+- openpyxl + LibreOffice — **✗** LibreOffice repairs the category refs to
+  strings and assigns a default style, but the legend position and anchor are
+  still not equivalent to the Witan chart.
+- witan — **✓** Authors the requested stock OHLC chart directly with
+  open/high/low/close roles, string date categories, bottom legend, style id,
+  and position `G2:N18`.
+
+**Script:** `scripts/retest_beta_chart_types.py`.
+
+**Prompt:**
+> Create an OHLC stock chart from `Prices!A1:E4`, using Date categories and
+> Open, High, Low, Close series. Place it from `G2` to `N18`, put the legend at
+> the bottom, and apply chart style `322`.
+
+Observed summaries:
+
+```text
+witan:
+  position G2:N18
+  groupType stockOHLC
+  stockRoles open/high/low/close
+  categoryRefTypes string
+  legendPosition bottom
+  styleId 322
+
+openpyxl:
+  position G2:A1
+  groupType stockOHLC
+  stockRoles open/high/low/close
+  categoryRefTypes number
+  legendPosition right
+  styleId none
+
+openpyxl + LibreOffice:
+  position G2:A1
+  groupType stockOHLC
+  stockRoles open/high/low/close
+  categoryRefTypes string
+  legendPosition right
+  styleId 419
+```
+
+---
+
+## Case 24 — Chart with multi-level category labels
+
+**Verdict**
+- openpyxl — **✗** Accepts a two-column category reference, but serializes it
+  as a numeric category reference rather than a multi-level string category
+  reference; the axis position and anchor also read back incorrectly.
+- openpyxl + LibreOffice — **✗** LibreOffice repairs the category reference
+  type and axis position, but the chart anchor remains `E2:A1` instead of the
+  requested `E2:M18`.
+- witan — **✓** Authors the requested multi-level category chart directly.
+
+**Script:** `scripts/retest_beta_chart_types.py`.
+
+**Prompt:**
+> Create a column chart named `Revenue by Region Quarter` from `Data!A1:C5`,
+> using Region and Quarter as multi-level category labels. Place it from `E2`
+> to `M18`.
+
+Observed summaries:
+
+```text
+witan:
+  position E2:M18
+  groupType column
+  categories Data!A2:B5
+  categoriesRefType multiLevelString
+  categoryAxisPosition bottom
+
+openpyxl:
+  position E2:A1
+  groupType column
+  categories 'Data'!$A$2:$B$5
+  categoriesRefType number
+  categoryAxisPosition left
+
+openpyxl + LibreOffice:
+  position E2:A1
+  groupType column
+  categories Data!$A$2:$B$5
+  categoriesRefType multiLevelString
+  categoryAxisPosition bottom
+```
+
+---
+
+## Case 25 — Smooth scatter chart with markers and exact placement
+
+**Verdict**
+- openpyxl — **✗** Can create a smooth-marker scatter chart when the series
+  marker is set explicitly, but the chart model still reads back with an
+  `E2:A1` anchor, missing style id, category axis on the left, no explicit
+  smooth flag, and marker metadata without the expected size.
+- openpyxl + LibreOffice — **✗** LibreOffice repairs the smooth/marker/axis
+  interpretation and assigns its own default style, but the anchor remains
+  `E2:A1` and the style id is `419` rather than the requested `240`.
+- witan — **✓** Authors the requested smooth scatter chart directly with
+  circle markers, smooth line, bottom legend, style id `240`, and position
+  `E2:M18`.
+
+**Script:** `scripts/retest_scatter_chart.py`. The script builds both a
+Witan-authored workbook and an openpyxl-authored workbook under
+`outputs/scatter_chart/`, then inspects each workbook with `xlsx.getChart`.
+
+**Prompt:**
+> Create a smooth XY scatter chart named `Response Curve` from `Data!A1:B4`,
+> using `Data!A2:A4` as X values and `Data!B2:B4` as Y values. Show circle
+> markers, place the legend at the bottom, apply chart style `240`, and place
+> the chart from `E2` to `M18`.
+
+Observed summaries:
+
+```text
+witan:
+  position E2:M18
+  groupType scatter
+  scatterStyle smoothMarker
+  smooth true
+  marker circle, size 5
+  categoryAxisPosition bottom
+  styleId 240
+
+openpyxl:
+  position E2:A1
+  groupType scatter
+  scatterStyle smoothMarker
+  smooth none
+  marker circle, no size
+  categoryAxisPosition left
+  styleId none
+
+openpyxl + LibreOffice:
+  position E2:A1
+  groupType scatter
+  scatterStyle smoothMarker
+  smooth true
+  marker circle, size 5
+  categoryAxisPosition bottom
+  styleId 419
+```
+
+LibreOffice improves the openpyxl chart, but it does not make the result
+equivalent to the Witan-authored spec.
+
+---
+
+## Case 26 — Copy a formula with relative-reference adjustment
+
+**Verdict**
+- openpyxl — **✗** A direct cell copy copies the formula text literally, so
+  `B2` remains `=A1*2` and has no cached result.
+- openpyxl + LibreOffice — **✗** LibreOffice recalculates the literal copied
+  formula, yielding `20`, but the requested row-local formula should be
+  `=A2*2` and yield `14`.
+- witan — **✓** `copyRange` rebases the relative reference and recalculates
+  `B2 = 14`.
+
+**Script:** `scripts/retest_changelog_operations.py`.
+
+**Prompt:**
+> In `Sheet1`, copy the formula from `B1` to `B2`. The source formula is
+> `=A1*2`; row 2 contains `A2 = 7`, so the copied formula should become
+> `=A2*2`.
+
+Observed:
+
+```text
+witan: B2 formula =A2*2, value 14
+openpyxl: B2 formula =A1*2, value null
+openpyxl + LibreOffice: B2 formula =A1*2, value 20
+```
+
+---
+
+## Case 27 — Sort worksheet rows by a key column
+
+**Verdict**
+- openpyxl — **✗** The available worksheet API writes an OOXML sort condition
+  under the autofilter, but does not reorder the rows.
+- openpyxl + LibreOffice — **✗** Passive open/save does not apply the saved
+  sort condition; the rows remain in the original order.
+- witan — **✓** `sortRange` actually reorders the rows by the requested key.
+
+**Script:** `scripts/retest_changelog_operations.py`.
+
+**Prompt:**
+> Sort `Sheet1!A1:B4` by `Score` descending, preserving the header row.
+
+Expected order: `Beta`, `Gamma`, `Alpha`.
+
+Observed:
+
+```text
+witan:
+  Beta  3
+  Gamma 2
+  Alpha 1
+
+openpyxl:
+  Alpha 1
+  Beta  3
+  Gamma 2
+
+openpyxl + LibreOffice:
+  Alpha 1
+  Beta  3
+  Gamma 2
+```
+
+---
+
+## Case 28 — Auto-fit worksheet columns to content
+
+**Verdict**
+- openpyxl — **✗** Setting `column_dimensions["A"].auto_size = True` writes a
+  `bestFit` hint but leaves the column at width `13`.
+- openpyxl + LibreOffice — **✗** Passive open/save removes the `bestFit` hint
+  and still leaves the column at width `13`.
+- witan — **✓** `autoFitColumns` measures the rendered content and writes
+  concrete widths; in this test, `A` is clamped to width `40` and `B` to width
+  `5`.
+
+**Script:** `scripts/retest_changelog_operations.py`.
+
+**Prompt:**
+> Auto-fit columns `A:B` on `Sheet1`, using minimum width `5` and maximum width
+> `40`.
+
+Observed:
+
+```text
+witan: A width 40, B width 5
+openpyxl: A width 13, bestFit=1
+openpyxl + LibreOffice: A width 13, bestFit removed
+```
+
+---
+
+## Case 29 — REGEXREPLACE with a negative occurrence
+
+**Verdict**
+- openpyxl — **✗** Writes the formula but cannot calculate it; cached value is
+  `None`.
+- openpyxl + LibreOffice — **✗** LibreOffice returns `#NAME?` for this modern
+  Excel function.
+- witan — **✓** Matches Excel's negative-occurrence behavior, counting from
+  the end and replacing the final `b`.
+
+**Script:** `scripts/retest_regexreplace_negative_occurrence.py`.
+
+**Prompt:**
+> Evaluate `=REGEXREPLACE("a-b-c-b","b","X",-1)`.
+
+Expected result: `a-b-c-X`.
+
+Observed:
+
+```text
+witan: a-b-c-X
+openpyxl: null
+openpyxl + LibreOffice: #NAME?
+```
+
+---
+
+## Case 30 — COUNTIF with criteria over 255 characters
+
+**Verdict**
+- openpyxl — **✗** Writes the formula but cannot calculate it; cached value is
+  `None`.
+- openpyxl + LibreOffice — **✗** LibreOffice counts the two matching cells and
+  returns `2`; Excel and Witan return `#VALUE!` for a criteria string longer
+  than 255 characters.
+- witan — **✓** Matches Excel's long-criteria behavior.
+
+**Script:** `scripts/retest_countif_long_criteria.py`.
+
+**Prompt:**
+> Evaluate `=COUNTIF(A1:A3,B1)` where `B1` is a 260-character criteria string.
+
+Expected result: `#VALUE!`.
+
+Observed:
+
+```text
+witan: #VALUE!
+openpyxl: null
+openpyxl + LibreOffice: 2
+```
+
+---
+
+## Cases 31-35 — Semantic lint diagnostics
+
+**Verdict**
+- openpyxl — **✗** Can load and save these workbooks, but has no comparable
+  semantic lint API and reports no workbook-risk diagnostics.
+- openpyxl + LibreOffice — **✗** Passive LibreOffice open/save also completes
+  without reporting these risks.
+- witan — **✓** `witan xlsx lint` reports structured diagnostics for each
+  workbook.
+
+**Script:** `scripts/retest_lint_cases.py`.
+
+| Case | Rule | Scenario | Witan diagnostic |
+|------|------|----------|------------------|
+| 31 | D002 | Approximate `VLOOKUP` over an unsorted lookup range | Warning at `Sheet1!D1` |
+| 32 | D007 | Exact `VLOOKUP` over duplicate lookup keys | Warning at `Sheet1!D1` |
+| 33 | D003 | Formula `=B1+5` where `B1` is empty | Warning at `Sheet1!A1` |
+| 34 | D005 | `SUM(A1:A3)` where the range includes text | Warning at `Sheet1!B1` |
+| 35 | D008 | `SUM(A1:A2)` where inputs are formatted as USD and EUR | Error at `Sheet1!A3` |
+
+Observed across all five cases:
+
+```text
+witan lint: reports the expected Dxxx rule
+openpyxl: saved without semantic diagnostics
+openpyxl + LibreOffice: saved without semantic diagnostics
+```
+
+These are verifier cases: the point is not that openpyxl or LibreOffice cannot
+serialize the workbook, but that they do not call out the semantic risk that
+Witan flags.
+
+---
+
+## Case 36 — Preview-render a waterfall chart
+
+**Verdict**
+- openpyxl — **✗** Has no native sheet-range preview/render API.
+- openpyxl + LibreOffice — **✗** LibreOffice PDF export does render something,
+  but the chart is not a waterfall: it is exported as a malformed line-like
+  chart with generic title/labels.
+- witan — **✓** Renders the requested sheet range as a PNG with the intended
+  waterfall chart.
+
+**Script:** `scripts/retest_preview_rendering.py`. The script writes stable
+README assets under `assets/preview_rendering/`.
+
+| Witan range render | LibreOffice PDF export |
+|---|---|
+| ![Witan waterfall preview](assets/preview_rendering/case36_witan_waterfall.png) | ![LibreOffice waterfall export](assets/preview_rendering/case36_libreoffice_waterfall.png) |
+
+---
+
+## Case 37 — Preview-render text layout
+
+**Verdict**
+- openpyxl — **✗** Has no native sheet-range preview/render API.
+- openpyxl + LibreOffice — **✗** LibreOffice PDF export is not an equivalent
+  range preview: the page export changes scale, typography, and text layout
+  behavior.
+- witan — **✓** Renders the target worksheet range directly as a PNG.
+
+**Script:** `scripts/retest_preview_rendering.py`.
+
+| Witan range render | LibreOffice PDF export |
+|---|---|
+| ![Witan text layout preview](assets/preview_rendering/case37_witan_text_layout.png) | ![LibreOffice text layout export](assets/preview_rendering/case37_libreoffice_text_layout.png) |
+
+---
+
+## Case 38 — Pathological regex formula
+
+**Verdict**
+- openpyxl — **✗** Writes the formula but cannot calculate it; cached value is
+  `None`.
+- openpyxl + LibreOffice — **✗** LibreOffice 26.2.1.2 saves `#NAME?` for
+  `REGEXTEST` in this probe.
+- witan — **✓** Evaluates the pathological regex through a bounded
+  non-backtracking path and returns `FALSE`.
+
+**Script:** `scripts/retest_pathological_regex_formula.py`.
+
+**Prompt:**
+> Evaluate `=REGEXTEST(A1,B1)` where `A1` is 2000 `a` characters followed by
+> `!`, and `B1` is the catastrophic-backtracking pattern `^(a+)+$`.
+
+Observed:
+
+```text
+witan: FALSE, elapsed inside xlsx exec ≈1ms
+openpyxl: null
+openpyxl + LibreOffice: #NAME?
+```
+
+This case is about safety as well as correctness: the input is a classic
+backtracking trap, but Witan's regex formula path remains bounded.
+
+---
+
+## Case 39 — Pathological regex search
+
+**Verdict**
+- openpyxl — **✗** There is no guarded workbook search API; a naive
+  openpyxl/Python `re.search` workflow times out on the same input.
+- openpyxl + LibreOffice — **✗** LibreOffice can resave the workbook, but the
+  subsequent openpyxl/Python regex search still times out.
+- witan — **✓** `findCells` runs the regex through a bounded non-backtracking
+  path and returns no matches quickly.
+
+**Script:** `scripts/retest_regex_search_hardening.py`.
+
+**Prompt:**
+> Find cells matching regex `^(a+)+$` where `Sheet1!A1` contains 32,000 `a`
+> characters followed by `!`.
+
+Observed:
+
+```text
+witan findCells: [], elapsed inside xlsx exec ≈39ms
+openpyxl/Python re: timed out after 2s
+openpyxl + LibreOffice then Python re: timed out after 2s
+```
+
+This is a hardening case rather than a formula-compatibility case: an agent
+using openpyxl has to build its own process timeout or choose a non-backtracking
+regex engine, while Witan's workbook search operation has that guard built in.
+
+---
+
+## Case 40 — Malformed formula authoring guard
+
+**Verdict**
+- openpyxl — **✗** Serializes the malformed formula string as-is and provides
+  no precise authoring error.
+- openpyxl + LibreOffice — **✗** LibreOffice rewrites the malformed text to
+  `=lambda(x,x+1)(2)` and caches `#VALUE!`, but the original authoring error is
+  not reported.
+- witan — **✓** Rejects the malformed formula before mutating the workbook; the
+  original `Sheet1!A1 = 1` remains intact.
+
+**Script:** `scripts/retest_malformed_formula_hardening.py`.
+
+**Prompt:**
+> Set `Sheet1!A1` to malformed formula `=LAMBDA(x,x+1)(2`.
+
+Observed:
+
+```text
+witan: Invalid formula for Sheet1!A1; cell remains 1
+openpyxl: formula '=LAMBDA(x,x+1)(2', cached value null
+openpyxl + LibreOffice: formula '=lambda(x,x+1)(2)', cached value '#VALUE!'
+```
+
+This catches a different hardening surface from Case 38/39: Witan validates
+formula payloads at write time and avoids partially applying invalid workbook
+mutations.
+
+---
+
+## Case 41 — `setCells` auto-reflows multiline row height
+
+**Verdict**
+- openpyxl — **✗** Writes the multiline text but leaves row height unset.
+- openpyxl + LibreOffice — **✗** LibreOffice sets a row height on resave, but
+  it differs from Witan's Excel-style row reflow.
+- witan — **✓** Plain `setCells` writes a taller row for multiline text:
+  `Sheet1!A3` gets `ht="65"` with `x14ac:dyDescent="0.2"`.
+
+**Script:** `scripts/retest_setcells_auto_row_height.py`.
+
+**Prompt:**
+> Set `Sheet1!A3` to four newline-separated lines of text.
+
+Observed:
+
+```text
+witan: row 3 height 65.0, XML <x:row r="3" ... ht="65" x14ac:dyDescent="0.2">
+openpyxl: row 3 height unset, XML <row r="3">
+openpyxl + LibreOffice: row 3 height 46.25
+```
+
+I also checked column width in the same script: none of the three paths widens
+column `A` from the default. In Witan, column fitting remains the explicit
+`autoFitColumns` operation covered by Case 28; the automatic `setCells` behavior
+is row-height reflow for multiline content.
+
+---
+
+## Case 42 — Bubble chart authoring and rendering
+
+**Verdict**
+- openpyxl — **✗** Can create a basic bubble chart, but cannot apply the
+  modern style ID (`269` raises `Max value is 48`), reads back with rough
+  anchor/axis semantics, and does not match the Witan chart spec.
+- openpyxl + LibreOffice — **✗** LibreOffice repairs the category-axis
+  position, but drops bubble-specific properties (`bubbleScale`,
+  `showNegativeBubbles`, `sizeRepresents`, and bubble-size labels) and exports
+  a visibly wrong chart.
+- witan — **✓** Authors the exact bubble chart, including `bubbleScale: 150`,
+  `showNegativeBubbles: true`, `sizeRepresents: "width"`, bubble-size labels,
+  exact placement, rounded-corner setting, and modern style `269`.
+
+**Script:** `scripts/retest_bubble_chart.py`.
+
+**Prompt:**
+> Create a bubble chart over `Data!A2:C4` with X/Y/Size columns, style `269`,
+> bubble scale `150`, negative bubbles visible, size represented by width, and
+> bubble-size labels shown on the right.
+
+Observed readback:
+
+```text
+witan: position E2:M18, bubbleScale 150, showNegativeBubbles true,
+       sizeRepresents width, showBubbleSize true, styleId 269
+openpyxl: position E2:A1, category axis left, styleId null;
+          setting style 269 raises "Max value is 48"
+openpyxl + LibreOffice: bubbleScale/showNegativeBubbles/sizeRepresents
+                       and showBubbleSize are gone; styleId becomes 419
+```
+
+Rendering the Witan-authored workbook also diverges. Witan renders all three
+bubbles, including the negative-size bubble because `showNegativeBubbles` is
+true:
+
+![Witan bubble chart render](/Users/nuno/dev/witan-vs-openpyxl/assets/preview_rendering/case42_witan_bubble.png)
+
+LibreOffice PDF export renders only the first bubble in this probe:
+
+![LibreOffice bubble chart PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/preview_rendering/case42_libreoffice_bubble.png)
+
+---
+
+## Case 43 — Render bar/column chart variations
+
+**Verdict**
+- openpyxl — **✗** Has no native chart rendering API.
+- openpyxl + LibreOffice — **✗** Exports a full PDF page and crops the visible
+  category range in the chart area.
+- witan — **✓** Renders the requested worksheet range directly to PNG.
+
+**Script:** `scripts/retest_chart_rendering_matrix.py`.
+
+**Prompt:**
+> Render clustered columns with negative values and gradient-filled columns.
+
+Representative pair:
+
+![Witan gradient column render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case43_bar_gradient_fill_witan.png)
+
+![LibreOffice gradient column PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case43_bar_gradient_fill_libreoffice.png)
+
+---
+
+## Case 44 — Render line chart variations
+
+**Verdict**
+- openpyxl — **✗** Has no native chart rendering API.
+- openpyxl + LibreOffice — **✗** Drops hi-low lines and up/down bars, and
+  exports only a partial category range.
+- witan — **✓** Renders both the gap-span and hi-low/up-down line variants.
+
+**Script:** `scripts/retest_chart_rendering_matrix.py`.
+
+**Prompt:**
+> Render line charts with `dispBlanksAs="span"` and with hi-low/up-down bars.
+
+Representative pair:
+
+![Witan line hi-low/up-down render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case44_line_hilow_updown_witan.png)
+
+![LibreOffice line hi-low/up-down PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case44_line_hilow_updown_libreoffice.png)
+
+---
+
+## Case 45 — Render area chart variations
+
+**Verdict**
+- openpyxl — **✗** Has no native chart rendering API.
+- openpyxl + LibreOffice — **✗** Exports a partial chart range instead of the
+  full requested worksheet range.
+- witan — **✓** Renders the stacked area chart with negative values.
+
+**Script:** `scripts/retest_chart_rendering_matrix.py`.
+
+**Prompt:**
+> Render a stacked area chart with negative values.
+
+Representative pair:
+
+![Witan negative stacked-area render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case45_area_negative_stacked_witan.png)
+
+![LibreOffice negative stacked-area PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case45_area_negative_stacked_libreoffice.png)
+
+---
+
+## Case 46 — Render pie/doughnut chart variations
+
+**Verdict**
+- openpyxl — **✗** Has no native chart rendering API.
+- openpyxl + LibreOffice — **✗** The two-ring doughnut geometry and exported
+  range do not match Witan's render.
+- witan — **✓** Renders mixed exploded pie slices and two-ring doughnut charts.
+
+**Script:** `scripts/retest_chart_rendering_matrix.py`.
+
+**Prompt:**
+> Render mixed exploded pie slices and a two-ring doughnut chart.
+
+Representative pair:
+
+![Witan two-ring doughnut render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case46_doughnut_two_ring_witan.png)
+
+![LibreOffice two-ring doughnut PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case46_doughnut_two_ring_libreoffice.png)
+
+---
+
+## Case 47 — Render scatter/trendline chart variations
+
+**Verdict**
+- openpyxl — **✗** Has no native chart rendering API.
+- openpyxl + LibreOffice — **✗** Exports a cropped chart range and changes the
+  trendline presentation.
+- witan — **✓** Renders the scatter chart and power trendline in the requested
+  range.
+
+**Script:** `scripts/retest_chart_rendering_matrix.py`.
+
+**Prompt:**
+> Render a scatter chart with a power trendline.
+
+Representative pair:
+
+![Witan scatter trendline render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case47_scatter_trendline_power_witan.png)
+
+![LibreOffice scatter trendline PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case47_scatter_trendline_power_libreoffice.png)
+
+---
+
+## Case 48 — Render custom error-bar chart variations
+
+**Verdict**
+- openpyxl — **✗** Has no native chart rendering API.
+- openpyxl + LibreOffice — **✗** Drops the custom asymmetric error bars.
+- witan — **✓** Renders the asymmetric error bars across all points.
+
+**Script:** `scripts/retest_chart_rendering_matrix.py`.
+
+**Prompt:**
+> Render a line chart with custom asymmetric error bars.
+
+Representative pair:
+
+![Witan custom error-bars render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case48_error_bars_custom_witan.png)
+
+![LibreOffice custom error-bars PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case48_error_bars_custom_libreoffice.png)
+
+---
+
+## Case 49 — Render stock chart with multi-level labels
+
+**Verdict**
+- openpyxl — **✗** Has no native chart rendering API.
+- openpyxl + LibreOffice — **✗** Loses the open/high/low/close role legend,
+  rewrites date labels as serials, and exports only a partial range.
+- witan — **✓** Renders the OHLC stock chart with multi-level category labels.
+
+**Script:** `scripts/retest_chart_rendering_matrix.py`.
+
+**Prompt:**
+> Render an OHLC stock chart with multi-level date/ticker category labels.
+
+Representative pair:
+
+![Witan stock OHLC multi-level render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case49_stock_ohlc_multilevel_witan.png)
+
+![LibreOffice stock OHLC multi-level PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case49_stock_ohlc_multilevel_libreoffice.png)
+
+---
+
+## Case 50 — Render secondary-axis combo/layout chart
+
+**Verdict**
+- openpyxl — **✗** Has no native chart rendering API.
+- openpyxl + LibreOffice — **✗** Exports a cropped chart range and clipped
+  legend/axis layout.
+- witan — **✓** Renders the combo/layout chart with secondary axis over the
+  full requested range.
+
+**Script:** `scripts/retest_chart_rendering_matrix.py`.
+
+**Prompt:**
+> Render a column/line chart layout with a secondary axis.
+
+Representative pair:
+
+![Witan secondary-axis layout render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case50_layout_secondary_axis_witan.png)
+
+![LibreOffice secondary-axis layout PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case50_layout_secondary_axis_libreoffice.png)
+
+---
+
+## Case 51 — Render chart axis display-unit property
+
+**Verdict**
+- openpyxl — **✗** Has no native chart rendering API.
+- openpyxl + LibreOffice — **✗** Exports raw values on the axis and omits the
+  `Millions` display-unit label.
+- witan — **✓** Renders the value axis scaled in millions with the display-unit
+  label.
+
+**Script:** `scripts/retest_chart_rendering_matrix.py`.
+
+**Prompt:**
+> Render a chart whose value axis uses display units in millions.
+
+Representative pair:
+
+![Witan axis display-units render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case51_axis_display_units_witan.png)
+
+![LibreOffice axis display-units PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case51_axis_display_units_libreoffice.png)
+
+---
+
 ## Reproducing the whole suite
 
 From `~/dev/witan-vs-openpyxl/`:
@@ -1562,6 +2524,54 @@ python3 scripts/retest_modern_excel_lambda.py
 # Case 18
 python3 scripts/retest_whatif_datatable_recalc.py
 
+# Case 19
+python3 scripts/retest_3d_references.py
+
+# Case 20
+python3 scripts/retest_structured_references.py
+
+# Case 21
+python3 scripts/retest_combo_chart.py
+
+# Cases 22-24
+python3 scripts/retest_beta_chart_types.py
+
+# Case 25
+python3 scripts/retest_scatter_chart.py
+
+# Cases 26-28
+python3 scripts/retest_changelog_operations.py
+
+# Case 29
+python3 scripts/retest_regexreplace_negative_occurrence.py
+
+# Case 30
+python3 scripts/retest_countif_long_criteria.py
+
+# Cases 31-35
+python3 scripts/retest_lint_cases.py
+
+# Cases 36-37
+python3 scripts/retest_preview_rendering.py
+
+# Case 38
+python3 scripts/retest_pathological_regex_formula.py
+
+# Case 39
+python3 scripts/retest_regex_search_hardening.py
+
+# Case 40
+python3 scripts/retest_malformed_formula_hardening.py
+
+# Case 41
+python3 scripts/retest_setcells_auto_row_height.py
+
+# Case 42
+python3 scripts/retest_bubble_chart.py
+
+# Cases 43-51
+python3 scripts/retest_chart_rendering_matrix.py
+
 # Excel validation (generic helper)
 uv run --with xlwings python scripts/excel_read.py <file> <sheet!addr> [<sheet!addr> …]
 ```
@@ -1591,3 +2601,15 @@ uv run --with xlwings python scripts/excel_read.py <file> <sheet!addr> [<sheet!a
 - **REDUCE and SCAN with LAMBDA** — Witan passes them and LibreOffice fails
   them, but they are too similar to Case 17 (`MAP` with `LAMBDA`) to justify
   separate cases in this compact suite.
+- **Malformed external relationship URI** — I tested
+  `external-link-malformed-uri-relationship.xlsx` from the ClosedXML malformed
+  load-tolerance fixtures. Witan and openpyxl both load it; openpyxl preserves
+  the malformed external-link relationship on save. LibreOffice drops the
+  external-link relationship, but because openpyxl alone passes, this is weaker
+  than the included cases.
+- **Generic chart property stress** — I tested line-chart properties such as
+  `displayBlanksAs: "span"`, `plotVisibleOnly: false`, rounded corners, value
+  axis bounds/number format, and plot-area formatting. openpyxl preserves some
+  of these simple properties, so the stronger chart-property evidence is folded
+  into Case 42: modern style IDs, exact anchors, plot semantics, and
+  bubble-specific properties.
