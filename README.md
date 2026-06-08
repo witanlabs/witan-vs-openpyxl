@@ -2200,11 +2200,11 @@ Rendering the Witan-authored workbook also diverges. Witan renders all three
 bubbles, including the negative-size bubble because `showNegativeBubbles` is
 true:
 
-![Witan bubble chart render](/Users/nuno/dev/witan-vs-openpyxl/assets/preview_rendering/case42_witan_bubble.png)
+![Witan bubble chart render](assets/preview_rendering/case42_witan_bubble.png)
 
 LibreOffice PDF export renders only the first bubble in this probe:
 
-![LibreOffice bubble chart PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/preview_rendering/case42_libreoffice_bubble.png)
+![LibreOffice bubble chart PDF export](assets/preview_rendering/case42_libreoffice_bubble.png)
 
 ---
 
@@ -2223,9 +2223,9 @@ LibreOffice PDF export renders only the first bubble in this probe:
 
 Representative pair:
 
-![Witan gradient column render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case43_bar_gradient_fill_witan.png)
+![Witan gradient column render](assets/chart_rendering/case43_bar_gradient_fill_witan.png)
 
-![LibreOffice gradient column PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case43_bar_gradient_fill_libreoffice.png)
+![LibreOffice gradient column PDF export](assets/chart_rendering/case43_bar_gradient_fill_libreoffice.png)
 
 ---
 
@@ -2244,9 +2244,9 @@ Representative pair:
 
 Representative pair:
 
-![Witan line hi-low/up-down render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case44_line_hilow_updown_witan.png)
+![Witan line hi-low/up-down render](assets/chart_rendering/case44_line_hilow_updown_witan.png)
 
-![LibreOffice line hi-low/up-down PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case44_line_hilow_updown_libreoffice.png)
+![LibreOffice line hi-low/up-down PDF export](assets/chart_rendering/case44_line_hilow_updown_libreoffice.png)
 
 ---
 
@@ -2265,9 +2265,9 @@ Representative pair:
 
 Representative pair:
 
-![Witan negative stacked-area render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case45_area_negative_stacked_witan.png)
+![Witan negative stacked-area render](assets/chart_rendering/case45_area_negative_stacked_witan.png)
 
-![LibreOffice negative stacked-area PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case45_area_negative_stacked_libreoffice.png)
+![LibreOffice negative stacked-area PDF export](assets/chart_rendering/case45_area_negative_stacked_libreoffice.png)
 
 ---
 
@@ -2286,9 +2286,9 @@ Representative pair:
 
 Representative pair:
 
-![Witan two-ring doughnut render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case46_doughnut_two_ring_witan.png)
+![Witan two-ring doughnut render](assets/chart_rendering/case46_doughnut_two_ring_witan.png)
 
-![LibreOffice two-ring doughnut PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case46_doughnut_two_ring_libreoffice.png)
+![LibreOffice two-ring doughnut PDF export](assets/chart_rendering/case46_doughnut_two_ring_libreoffice.png)
 
 ---
 
@@ -2308,9 +2308,9 @@ Representative pair:
 
 Representative pair:
 
-![Witan scatter trendline render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case47_scatter_trendline_power_witan.png)
+![Witan scatter trendline render](assets/chart_rendering/case47_scatter_trendline_power_witan.png)
 
-![LibreOffice scatter trendline PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case47_scatter_trendline_power_libreoffice.png)
+![LibreOffice scatter trendline PDF export](assets/chart_rendering/case47_scatter_trendline_power_libreoffice.png)
 
 ---
 
@@ -2328,9 +2328,9 @@ Representative pair:
 
 Representative pair:
 
-![Witan custom error-bars render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case48_error_bars_custom_witan.png)
+![Witan custom error-bars render](assets/chart_rendering/case48_error_bars_custom_witan.png)
 
-![LibreOffice custom error-bars PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case48_error_bars_custom_libreoffice.png)
+![LibreOffice custom error-bars PDF export](assets/chart_rendering/case48_error_bars_custom_libreoffice.png)
 
 ---
 
@@ -2349,9 +2349,9 @@ Representative pair:
 
 Representative pair:
 
-![Witan stock OHLC multi-level render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case49_stock_ohlc_multilevel_witan.png)
+![Witan stock OHLC multi-level render](assets/chart_rendering/case49_stock_ohlc_multilevel_witan.png)
 
-![LibreOffice stock OHLC multi-level PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case49_stock_ohlc_multilevel_libreoffice.png)
+![LibreOffice stock OHLC multi-level PDF export](assets/chart_rendering/case49_stock_ohlc_multilevel_libreoffice.png)
 
 ---
 
@@ -2371,9 +2371,9 @@ Representative pair:
 
 Representative pair:
 
-![Witan secondary-axis layout render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case50_layout_secondary_axis_witan.png)
+![Witan secondary-axis layout render](assets/chart_rendering/case50_layout_secondary_axis_witan.png)
 
-![LibreOffice secondary-axis layout PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case50_layout_secondary_axis_libreoffice.png)
+![LibreOffice secondary-axis layout PDF export](assets/chart_rendering/case50_layout_secondary_axis_libreoffice.png)
 
 ---
 
@@ -2393,9 +2393,9 @@ Representative pair:
 
 Representative pair:
 
-![Witan axis display-units render](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case51_axis_display_units_witan.png)
+![Witan axis display-units render](assets/chart_rendering/case51_axis_display_units_witan.png)
 
-![LibreOffice axis display-units PDF export](/Users/nuno/dev/witan-vs-openpyxl/assets/chart_rendering/case51_axis_display_units_libreoffice.png)
+![LibreOffice axis display-units PDF export](assets/chart_rendering/case51_axis_display_units_libreoffice.png)
 
 ---
 
