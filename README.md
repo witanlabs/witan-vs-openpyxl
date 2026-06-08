@@ -1,4 +1,4 @@
-# witan xlsx exec vs openpyxl — 51 reproducible test cases
+# witan xlsx exec vs openpyxl — 53 reproducible test cases
 
 > [!NOTE]
 > **Scope.** A handful of examples showing places where `witan xlsx exec` has
@@ -25,13 +25,13 @@ All fixtures, scripts, and outputs live under `~/dev/witan-vs-openpyxl/`.
 
 ## Summary
 
-Pass counts across the 51 cases below:
+Pass counts across the 53 cases below:
 
 | Toolchain | Pass | Fail |
 |-----------|------|------|
-| witan | 51 | 0 |
-| openpyxl | 0 | 51 |
-| openpyxl + LibreOffice | 7 | 44 |
+| witan | 53 | 0 |
+| openpyxl | 0 | 53 |
+| openpyxl + LibreOffice | 7 | 46 |
 
 | # | Task | witan | openpyxl | openpyxl + LibreOffice |
 |---|------|-------|----------|------------------------|
@@ -86,6 +86,8 @@ Pass counts across the 51 cases below:
 | 49 | Render stock chart with multi-level labels | ✓ OHLC roles and multi-level labels rendered | ✗ no render API | ✗ loses roles/labels and crops the range |
 | 50 | Render secondary-axis combo/layout chart | ✓ secondary axis and full range rendered | ✗ no render API | ✗ PDF export crops the range/legend |
 | 51 | Render chart axis display-unit property | ✓ millions display unit rendered | ✗ no render API | ✗ exports raw values with no unit label |
+| 52 | Evaluate `XLOOKUP` over a 100k-row table | ✓ returns 299997 | ✗ no cached result after write | ✗ LibreOffice returns `#NAME?` |
+| 53 | Sum formula-heavy column `T` in `sz-test.xlsx` | ✓ returns 2058 | ✗ returns 81 from one stale cache | ✗ returns partial 234 plus `#N/A` errors |
 
 Key: ✓ works · ✗ fails.
 
@@ -93,8 +95,8 @@ Key: ✓ works · ✗ fails.
 
 Grouped by the *kind* of failure each case surfaces on the openpyxl side:
 
-- **Silent wrong answer** (agent reports without any error signal) — 1, 2, 4, 11, 14, 18, 26, 27, 28, 29, 30, 38
-- **Cannot complete the task at all** (hard error, crash, unsupported formula, or missing API) — 3, 6, 7, 8, 9, 15, 16, 17, 19, 20, 22, 27, 28
+- **Silent wrong answer** (agent reports without any error signal) — 1, 2, 4, 11, 14, 18, 26, 27, 28, 29, 30, 38, 52, 53
+- **Cannot complete the task at all** (hard error, crash, unsupported formula, or missing API) — 3, 6, 7, 8, 9, 15, 16, 17, 19, 20, 22, 27, 28, 52, 53
 - **File requires Excel repair** (produced file flagged as corrupt) — 5, 12, 13
 - **Broken XML or structure** (file loads but is semantically wrong) — 6, 10, 11
 - **Chart authoring/inspection mismatch** — 21, 23, 24, 25, 42
@@ -2397,6 +2399,70 @@ Representative pair:
 
 ---
 
+## Case 52 — Evaluate `XLOOKUP` over a 100k-row table
+
+**Verdict**
+- openpyxl — **✗** Preserves the formula but has no cached value after the
+  write.
+- openpyxl + LibreOffice — **✗** LibreOffice rewrites the formula name to
+  lowercase `xlookup` but caches `#NAME?`.
+- witan — **✓** Evaluates the lookup across the generated 100,000-row table
+  and returns `299997`.
+
+**Script:** `scripts/retest_100k_xlookup.py`.
+
+**Prompt:**
+> Generate a 100,000-row `Data` table with `Key` and `Amount` columns, then
+> evaluate `Summary!B2 = XLOOKUP(B1, Data!A2:A100001, Data!B2:B100001)` for
+> `B1 = 99999`.
+
+Observed on 2026-06-08 with a generated 1,349,012-byte workbook:
+
+```text
+witan: 2.59s, formula='=XLOOKUP(B1,Data!A2:A100001,Data!B2:B100001)', value=299997
+openpyxl: 4.95s, formula='=XLOOKUP(B1,Data!A2:A100001,Data!B2:B100001)', value=None
+openpyxl + LibreOffice: 7.58s, formula='=xlookup(B1,Data!A2:A100001,Data!B2:B100001)', value='#NAME?'
+```
+
+---
+
+## Case 53 — Sum formula-heavy column `T` in `sz-test.xlsx`
+
+**Verdict**
+- openpyxl — **✗** With `data_only=True`, only `T10` has a cached numeric
+  value. The formula cells in column `T` read as `None`, so a naive numeric sum
+  returns `81`.
+- openpyxl + LibreOffice — **✗** LibreOffice recalculates the first few cells
+  but produces `#N/A` for most of the column. A numeric-only sum returns `234`,
+  but the column contains errors and the answer is wrong.
+- witan — **✓** Evaluates the formulas in `Sheet1!T1:T30` and returns the
+  correct sum `2058`.
+
+**Fixture:** `fixtures/sz-test.xlsx`.
+
+**Script:** `scripts/retest_sz_column_sum.py`.
+
+**Prompt:**
+> Can you tell me the sum of the `T` column in that spreadsheet?
+
+Observed on 2026-06-08:
+
+```text
+witan: sum=2058, first values=[21, 72, 60, 76, 28, 33, 55, 54, 78, 81] ..., non_numeric=[]
+openpyxl: sum=81, first values=[None, None, None, None, None, None, None, None, None, 81] ..., non_numeric=[]
+openpyxl + LibreOffice: sum=234, first values=[21, 72, 60, '#N/A', '#N/A', '#N/A', '#N/A', '#N/A', '#N/A', 81] ..., non_numeric=[(4, '#N/A'), (5, '#N/A'), (6, '#N/A'), (7, '#N/A'), (8, '#N/A')]
+```
+
+Witan's evaluated values for `T1:T30` are:
+
+```text
+21, 72, 60, 76, 28, 33, 55, 54, 78, 81,
+69, 35, 71, 60, 61, 65, 78, 81, 70, 82,
+74, 84, 82, 67, 81, 87, 84, 88, 91, 90
+```
+
+---
+
 ## Reproducing the whole suite
 
 From `~/dev/witan-vs-openpyxl/`:
@@ -2540,6 +2606,12 @@ python3 scripts/retest_bubble_chart.py
 
 # Cases 43-51
 python3 scripts/retest_chart_rendering_matrix.py
+
+# Case 52
+python3 scripts/retest_100k_xlookup.py
+
+# Case 53
+python3 scripts/retest_sz_column_sum.py
 
 # Excel validation (generic helper)
 uv run --with xlwings python scripts/excel_read.py <file> <sheet!addr> [<sheet!addr> …]
